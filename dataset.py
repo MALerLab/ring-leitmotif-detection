@@ -20,7 +20,7 @@ class LeitmotifDataset:
                 self.cqt[fn.stem] = torch.tensor(pickle.load(f)).T # (time, n_bins)
 
             # Create ground truth instance tensors
-            self.instances_gt[fn.stem] = torch.zeros((self.cqt[fn.stem].shape[0], 20))
+            self.instances_gt[fn.stem] = torch.zeros((self.cqt[fn.stem].shape[0], 21))
             instances = list(pd.read_csv(instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
             for instance in instances:
                 motif = instance[0]
@@ -30,6 +30,9 @@ class LeitmotifDataset:
                 end_idx = int(round(end * 22050 / 512))
                 motif_idx = motif2idx[motif]
                 self.instances_gt[fn.stem][start_idx:end_idx, motif_idx] = 1
+
+            # Add "none" class to ground truth
+            self.instances_gt[fn.stem][:, -1] = 1 - self.instances_gt[fn.stem][:, :-1].max(dim=1).values
             
             # Sample leitmotif instances
             samples_act = sample_instance_intervals(instances, duration_sec)
