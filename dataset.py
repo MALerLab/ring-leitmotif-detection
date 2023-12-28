@@ -2,16 +2,23 @@ from pathlib import Path
 import pickle
 import pandas as pd
 import torch
+import torchaudio
 from tqdm.auto import tqdm
 from data_utils import motif2idx, sample_instance_intervals, generate_non_overlapping_intervals, sample_non_overlapping_interval
 
 class LeitmotifDataset:
-    def __init__(self, pkl_path:Path, instances_path:Path, duration_sec=15, duration_samples=646):
+    def __init__(self, pkl_path:Path, instances_path:Path, duration_sec=15, duration_samples=646, audio_path=None):
         self.cqt = {}
         self.instances_gt = {}
         self.samples = []
         self.none_samples = []
 
+        self.duration_sec = duration_sec
+        if audio_path is None:
+            self.audio_path = Path("data/WagnerRing_Public/01_RawData/audio_wav")
+        else:
+            self.audio_path = audio_path
+        
         print("Creating dataset...")
         pkl_fns = sorted(list(pkl_path.glob("*.pkl")))
         for fn in tqdm(pkl_fns):
@@ -56,6 +63,41 @@ class LeitmotifDataset:
             none_samples_act.sort(key=lambda x: x[0])
             none_samples_act = [(fn.stem, int(round(x[0] * 22050 / 512)), int(round(x[0] * 22050 / 512) + duration_samples)) for x in none_samples_act]
             self.none_samples.extend(none_samples_act)
+
+    def query_motif(self, motif:str):
+        """
+        Query with motif name. (e.g. "Nibelungen")\n
+        Returns list of (idx, version, start_sec, end_sec)
+        """
+        motif_samples = [(idx, x[0], x[2] * 512 // 22050, x[3] * 512 // 22050) for (idx, x) in enumerate(self.samples) if x[1] == motif]
+        if len(motif_samples) > 0:
+            return motif_samples
+        else:
+            return None
+
+    def preview_idx(self, idx):
+        """
+        Returns (version, motif, y, sr, start_sec, instances_gt)
+        """
+        if idx < len(self.samples):
+            fn, motif, start, end = self.samples[idx]
+            gt = self.instances_gt[fn][start:end, :]
+            start_sec = start * 512 // 22050
+            start = start * 512
+            y, sr = torchaudio.load(self.audio_path / f"{fn}.wav")
+            end = start + (self.duration_sec * sr)
+            y = y[:, start:end]
+            return fn, motif, y, sr, start_sec, gt
+        else:
+            idx -= len(self.samples)
+            fn, start, end = self.none_samples[idx]
+            gt = torch.zeros((end - start, 21))
+            start_sec = start * 512 // 22050
+            start = start * 512
+            y, sr = torchaudio.load(self.audio_path / f"{fn}.wav")
+            end = start + (self.duration_sec * sr)
+            y = y[:, start:end]
+            return fn, "none", y, sr, start_sec, gt
 
     def __len__(self):
         return len(self.samples) + len(self.none_samples)
