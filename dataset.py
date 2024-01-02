@@ -83,8 +83,8 @@ class LeitmotifDataset:
             fn, motif, start, end = self.samples[idx]
             gt = self.instances_gt[fn][start:end, :]
             start_sec = start * 512 // 22050
-            start = start * 512
             y, sr = torchaudio.load(self.audio_path / f"{fn}.wav")
+            start = start_sec * sr
             end = start + (self.duration_sec * sr)
             y = y[:, start:end]
             return fn, motif, y, sr, start_sec, gt
@@ -93,8 +93,8 @@ class LeitmotifDataset:
             fn, start, end = self.none_samples[idx]
             gt = torch.zeros((end - start, 21))
             start_sec = start * 512 // 22050
-            start = start * 512
             y, sr = torchaudio.load(self.audio_path / f"{fn}.wav")
+            start = start_sec * sr
             end = start + (self.duration_sec * sr)
             y = y[:, start:end]
             return fn, "none", y, sr, start_sec, gt
