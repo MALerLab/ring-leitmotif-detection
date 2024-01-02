@@ -68,15 +68,21 @@ class LeitmotifDataset:
             none_samples_act = [(version, act, int(round(x[0] * 22050 / 512)), int(round(x[0] * 22050 / 512) + duration_samples)) for x in none_samples_act]
             self.none_samples.extend(none_samples_act)
 
-    def get_subset_idxs(self, version=None, act=None):
-        if version is None and act is None:
-            return list(range(len(self.samples)))
-        elif version is None:
-            return [idx for (idx, x) in enumerate(self.samples) if x[1] == act]
-        elif act is None:
-            return [idx for (idx, x) in enumerate(self.samples) if x[0] == version]
+    def get_subset_idxs(self, versions=None, acts=None):
+        if versions is None and acts is None:
+            return list(range(len(self.samples) + len(self.none_samples)))
+        elif versions is None:
+            samples = [idx for (idx, x) in enumerate(self.samples) if x[1] in acts]
+            none_samples = [idx + len(self.samples) for (idx, x) in enumerate(self.none_samples) if x[1] in acts]
+            return samples + none_samples
+        elif acts is None:
+            samples = [idx for (idx, x) in enumerate(self.samples) if x[0] in versions]
+            none_samples = [idx + len(self.samples) for (idx, x) in enumerate(self.none_samples) if x[0] in versions]
+            return samples + none_samples
         else:
-            return [idx for (idx, x) in enumerate(self.samples) if x[0] == version and x[1] == act]
+            samples = [idx for (idx, x) in enumerate(self.samples) if x[0] in versions and x[1] in acts]
+            none_samples = [idx + len(self.samples) for (idx, x) in enumerate(self.none_samples) if x[0] in versions and x[1] in acts]
+            return samples + none_samples
 
     def query_motif(self, motif:str):
         """
@@ -127,7 +133,7 @@ class LeitmotifDataset:
             idx -= len(self.samples)
             version, act, start, end = self.none_samples[idx]
             fn = f"{version}_{act}"
-            return self.cqt[fn][start:end, :], torch.zeros((end - start, 20))
+            return self.cqt[fn][start:end, :], torch.zeros((end - start, 21))
         
 class Subset:
     def __init__(self, dataset, indices):
@@ -139,3 +145,9 @@ class Subset:
 
     def __getitem__(self, idx):
         return self.dataset[self.indices[idx]]
+    
+def collate_fn(batch):
+    cqt, gt = zip(*batch)
+    cqt = torch.stack(cqt)
+    gt = torch.stack(gt)
+    return cqt, gt
