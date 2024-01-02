@@ -68,6 +68,16 @@ class LeitmotifDataset:
             none_samples_act = [(version, act, int(round(x[0] * 22050 / 512)), int(round(x[0] * 22050 / 512) + duration_samples)) for x in none_samples_act]
             self.none_samples.extend(none_samples_act)
 
+    def get_subset_idxs(self, version=None, act=None):
+        if version is None and act is None:
+            return list(range(len(self.samples)))
+        elif version is None:
+            return [idx for (idx, x) in enumerate(self.samples) if x[1] == act]
+        elif act is None:
+            return [idx for (idx, x) in enumerate(self.samples) if x[0] == version]
+        else:
+            return [idx for (idx, x) in enumerate(self.samples) if x[0] == version and x[1] == act]
+
     def query_motif(self, motif:str):
         """
         Query with motif name. (e.g. "Nibelungen")\n
@@ -118,3 +128,14 @@ class LeitmotifDataset:
             version, act, start, end = self.none_samples[idx]
             fn = f"{version}_{act}"
             return self.cqt[fn][start:end, :], torch.zeros((end - start, 20))
+        
+class Subset:
+    def __init__(self, dataset, indices):
+        self.dataset = dataset
+        self.indices = indices
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        return self.dataset[self.indices[idx]]
