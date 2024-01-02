@@ -1,6 +1,8 @@
-**/.DS_Store
 data/WagnerRing_Public/
 data/CQT/
+checkpoints/
 __pycache__/
 .vscode/
 outputs/
+wandb/
+**/.DS_Store
