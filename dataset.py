@@ -42,8 +42,11 @@ class LeitmotifDataset:
             self.instances_gt[fn.stem][:, -1] = 1 - self.instances_gt[fn.stem][:, :-1].max(dim=1).values
             
             # Sample leitmotif instances
+            version = fn.stem.split("_")[0]
+            act = fn.stem.split("_")[1]
             samples_act = sample_instance_intervals(instances, duration_sec)
-            samples_act = [(fn.stem, x[0], int(round(x[1] * 22050 / 512)), int(round(x[1] * 22050 / 512) + duration_samples)) for x in samples_act]
+            # (version, act, motif, start_sec, end_sec)
+            samples_act = [(version, act, x[0], int(round(x[1] * 22050 / 512)), int(round(x[1] * 22050 / 512) + duration_samples)) for x in samples_act]
             self.samples.extend(samples_act)
 
             # Sample non-leitmotif instances
@@ -61,15 +64,16 @@ class LeitmotifDataset:
                     none_intervals = generate_non_overlapping_intervals(occupied, total_duration)
                     none_samples_act.append(samp)
             none_samples_act.sort(key=lambda x: x[0])
-            none_samples_act = [(fn.stem, int(round(x[0] * 22050 / 512)), int(round(x[0] * 22050 / 512) + duration_samples)) for x in none_samples_act]
+            # (version, act, start_sec, end_sec)
+            none_samples_act = [(version, act, int(round(x[0] * 22050 / 512)), int(round(x[0] * 22050 / 512) + duration_samples)) for x in none_samples_act]
             self.none_samples.extend(none_samples_act)
 
     def query_motif(self, motif:str):
         """
         Query with motif name. (e.g. "Nibelungen")\n
-        Returns list of (idx, version, start_sec, end_sec)
+        Returns list of (idx, version, act, start_sec, end_sec)
         """
-        motif_samples = [(idx, x[0], x[2] * 512 // 22050, x[3] * 512 // 22050) for (idx, x) in enumerate(self.samples) if x[1] == motif]
+        motif_samples = [(idx, x[0], x[1], x[3] * 512 // 22050, x[4] * 512 // 22050) for (idx, x) in enumerate(self.samples) if x[2] == motif]
         if len(motif_samples) > 0:
             return motif_samples
         else:
@@ -77,36 +81,40 @@ class LeitmotifDataset:
 
     def preview_idx(self, idx):
         """
-        Returns (version, motif, y, sr, start_sec, instances_gt)
+        Returns (version, act, motif, y, sr, start_sec, instances_gt)
         """
         if idx < len(self.samples):
-            fn, motif, start, end = self.samples[idx]
+            version, act, motif, start, end = self.samples[idx]
+            fn = f"{version}_{act}"
             gt = self.instances_gt[fn][start:end, :]
             start_sec = start * 512 // 22050
             y, sr = torchaudio.load(self.audio_path / f"{fn}.wav")
             start = start_sec * sr
             end = start + (self.duration_sec * sr)
             y = y[:, start:end]
-            return fn, motif, y, sr, start_sec, gt
+            return version, act, motif, y, sr, start_sec, gt
         else:
             idx -= len(self.samples)
-            fn, start, end = self.none_samples[idx]
+            version, act, start, end = self.none_samples[idx]
+            fn = f"{version}_{act}"
             gt = torch.zeros((end - start, 21))
             start_sec = start * 512 // 22050
             y, sr = torchaudio.load(self.audio_path / f"{fn}.wav")
             start = start_sec * sr
             end = start + (self.duration_sec * sr)
             y = y[:, start:end]
-            return fn, "none", y, sr, start_sec, gt
+            return version, act, "none", y, sr, start_sec, gt
 
     def __len__(self):
         return len(self.samples) + len(self.none_samples)
     
     def __getitem__(self, idx):
         if idx < len(self.samples):
-            fn, _, start, end = self.samples[idx]
+            version, act, _, start, end = self.samples[idx]
+            fn = f"{version}_{act}"
             return self.cqt[fn][start:end, :], self.instances_gt[fn][start:end, :]
         else:
             idx -= len(self.samples)
-            fn, start, end = self.none_samples[idx]
+            version, act, start, end = self.none_samples[idx]
+            fn = f"{version}_{act}"
             return self.cqt[fn][start:end, :], torch.zeros((end - start, 20))
