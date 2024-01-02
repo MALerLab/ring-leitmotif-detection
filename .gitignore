@@ -1,3 +1,6 @@
 **/.DS_Store
 data/WagnerRing_Public/
 data/CQT/
+__pycache__/
+.vscode/
+outputs/
