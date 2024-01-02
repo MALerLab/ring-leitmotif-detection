@@ -25,6 +25,7 @@ class LeitmotifDataset:
             # Load CQT data
             with open(fn, "rb") as f:
                 self.cqt[fn.stem] = torch.tensor(pickle.load(f)).T # (time, n_bins)
+            total_duration = self.cqt[fn.stem].shape[0] * 512 // 22050
 
             # Create ground truth instance tensors
             self.instances_gt[fn.stem] = torch.zeros((self.cqt[fn.stem].shape[0], 21))
@@ -44,13 +45,12 @@ class LeitmotifDataset:
             # Sample leitmotif instances
             version = fn.stem.split("_")[0]
             act = fn.stem.split("_")[1]
-            samples_act = sample_instance_intervals(instances, duration_sec)
+            samples_act = sample_instance_intervals(instances, duration_sec, total_duration)
             # (version, act, motif, start_sec, end_sec)
             samples_act = [(version, act, x[0], int(round(x[1] * 22050 / 512)), int(round(x[1] * 22050 / 512) + duration_samples)) for x in samples_act]
             self.samples.extend(samples_act)
 
             # Sample non-leitmotif instances
-            total_duration = self.cqt[fn.stem].shape[0] * 512 // 22050
             occupied = instances.copy()
             none_intervals = generate_non_overlapping_intervals(instances, total_duration)
             none_samples_act = []
