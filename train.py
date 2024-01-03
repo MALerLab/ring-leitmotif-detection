@@ -8,8 +8,6 @@ from dataset import LeitmotifDataset, Subset, collate_fn
 from modules import RNNModel, CNNModel
 from constants import TRAIN_VERSION, VALID_VERSION, TEST_VERSION
 
-# TODO: add metrics
-
 class Trainer:
     def __init__(self, model, optimizer, train_loader, valid_loader, device, cfg, hyperparams):
         self.model = model
@@ -50,7 +48,7 @@ class Trainer:
         for epoch in tqdm(range(self.cur_epoch, self.hyperparams["num_epochs"])):
             self.cur_epoch = epoch
             self.model.train()
-            for batch in tqdm(self.train_loader):
+            for batch in tqdm(self.train_loader, leave=False):
                 cqt, gt = batch
                 cqt = cqt.to(self.device)
                 gt = gt.to(self.device)
@@ -59,23 +57,51 @@ class Trainer:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+
                 if self.cfg["log_to_wandb"]:
-                    wandb.log({"train_loss": loss.item()})
+                    tp = ((pred > 0.5) & (gt == 1)).sum().item()
+                    if tp == 0:
+                        tp = 0.0001
+                    fp = ((pred > 0.5) & (gt == 0)).sum().item()
+                    fn = ((pred <= 0.5) & (gt == 1)).sum().item()
+                    precision = tp / (tp + fp)
+                    recall = tp / (tp + fn)
+                    f1 = 2 * precision * recall / (precision + recall)
+                    wandb.log({"train_loss": loss.item(), "train_precision": precision, "train_recall": recall, "train_f1": f1})
             
             self.model.eval()
             with torch.inference_mode():
                 total_loss = 0
-                for batch in tqdm(self.valid_loader):
+                total_precision = 0
+                total_recall = 0
+                total_f1 = 0
+                for batch in tqdm(self.valid_loader, leave=False):
                     cqt, gt = batch
                     cqt = cqt.to(self.device)
                     gt = gt.to(self.device)
                     pred = self.model(cqt)
                     loss = self.criterion(pred, gt)
                     total_loss += loss.item()
+
+                    if self.cfg["log_to_wandb"]:
+                        tp = ((pred > 0.5) & (gt == 1)).sum().item()
+                        if tp == 0:
+                            tp = 0.0001
+                        fp = ((pred > 0.5) & (gt == 0)).sum().item()
+                        fn = ((pred <= 0.5) & (gt == 1)).sum().item()
+                        precision = tp / (tp + fp)
+                        recall = tp / (tp + fn)
+                        f1 = 2 * precision * recall / (precision + recall)
+                        total_precision += precision
+                        total_recall += recall
+                        total_f1 += f1
                     
                 if self.cfg["log_to_wandb"]:
                     avg_loss = total_loss / len(self.valid_loader)
-                    wandb.log({"valid_loss": avg_loss})
+                    avg_precision = total_precision / len(self.valid_loader)
+                    avg_recall = total_recall / len(self.valid_loader)
+                    avg_f1 = total_f1 / len(self.valid_loader)
+                    wandb.log({"valid_loss": avg_loss, "valid_precision": avg_precision, "valid_recall": avg_recall, "valid_f1": avg_f1})
             
             self.save_checkpoint()
         
