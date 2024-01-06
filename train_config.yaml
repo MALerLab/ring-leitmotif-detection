@@ -1,5 +1,6 @@
 cfg:
   model: RNN
+  split: version
   random_seed: 1204
   save_checkpoint: True
   log_to_wandb: True

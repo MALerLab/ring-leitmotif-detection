@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 import wandb
 from dataset import LeitmotifDataset, Subset, collate_fn
 from modules import RNNModel, CNNModel
-from constants import TRAIN_VERSION, VALID_VERSION, TEST_VERSION
+import constants as C
 
 class Trainer:
     def __init__(self, model, optimizer, train_loader, valid_loader, device, cfg, hyperparams):
@@ -115,9 +115,17 @@ def main(config: DictConfig):
     DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
     base_set = LeitmotifDataset(Path("data/CQT"), Path("data/LeitmotifOccurrencesInstances/Instances"))
-    train_set = Subset(base_set, base_set.get_subset_idxs(versions=TRAIN_VERSION))
-    valid_set = Subset(base_set, base_set.get_subset_idxs(versions=VALID_VERSION))
-    test_set = Subset(base_set, base_set.get_subset_idxs(versions=TEST_VERSION))
+    train_set, valid_set, test_set = None, None, None
+    if cfg["split"] == "version":
+        train_set = Subset(base_set, base_set.get_subset_idxs(versions=C.TRAIN_VERSION))
+        valid_set = Subset(base_set, base_set.get_subset_idxs(versions=C.VALID_VERSION))
+        test_set = Subset(base_set, base_set.get_subset_idxs(versions=C.TEST_VERSION))
+    elif cfg["split"] == "act":
+        train_set = Subset(base_set, base_set.get_subset_idxs(acts=C.TRAIN_ACT))
+        valid_set = Subset(base_set, base_set.get_subset_idxs(acts=C.VALID_ACT))
+        test_set = Subset(base_set, base_set.get_subset_idxs(acts=C.TEST_ACT))
+    else:
+        raise ValueError("Invalid split method")
 
     rng = torch.Generator().manual_seed(cfg["random_seed"])
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=32, shuffle=True, generator=rng, collate_fn = collate_fn)
