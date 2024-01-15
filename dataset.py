@@ -78,7 +78,7 @@ class LeitmotifDataset:
                 end_idx = int(round(end * 22050 / 512))
                 self.singing_gt[fn.stem][start_idx:end_idx, 0] = 1
 
-            self.sample_intervals()
+        self.sample_intervals()
 
     def sample_intervals(self):
         self.samples = []
