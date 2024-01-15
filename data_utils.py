@@ -1,53 +1,5 @@
 import random
 
-idx2motif = [
-    'Nibelungen',
-    'Ring',
-    'Nibelungenhass',
-    'Mime',
-    'Ritt',
-    'Waldweben',
-    'Waberlohe',
-    'Horn',
-    'Geschwisterliebe',
-    'Schwert',
-    'Jugendkraft',
-    'Walhall-b',
-    'Riesen',
-    'Feuerzauber',
-    'Schicksal',
-    'Unmuth',
-    'Liebe',
-    'Siegfried',
-    'Mannen',
-    'Vertrag'
-]
-
-motif2id = {
-    'Nibelungen': 'L-Ni',
-    'Ring': 'L-Ri',
-    'Nibelungenhass': 'L-NH',
-    'Mime': 'L-Mi',
-    'Ritt': 'L-RT',
-    'Waldweben': 'L-Wa',
-    'Waberlohe': 'L-Wa',
-    'Horn': 'L-Ho',
-    'Geschwisterliebe': 'L-Ge',
-    'Schwert': 'L-Sc',
-    'Jugendkraft': 'L-Ju',
-    'Walhall-b': 'L-WH',
-    'Riesen': 'L-RS',
-    'Feuerzauber': 'L-Fe',
-    'Schicksal': 'L-SK',
-    'Unmuth': 'L-Un',
-    'Liebe': 'L-Li',
-    'Siegfried': 'L-Si',
-    'Mannen': 'L-Ma',
-    'Vertrag': 'L-Ve'
-}
-
-motif2idx = {x: i for i, x in enumerate(idx2motif)}
-
 def sample_instance_intervals(instances, duration, total_duration):
     """
     Generates a list of intervals where a leitmotif occurs.\n
@@ -115,3 +67,72 @@ def sample_non_overlapping_interval(intervals, duration):
     start = round(random.uniform(selected_interval[0], selected_interval[1] - duration), 3)
     end = round(start + duration, 3)
     return (start, end)
+
+idx2motif = [
+    'Nibelungen',
+    'Ring',
+    'Nibelungenhass',
+    'Mime',
+    'Ritt',
+    'Waldweben',
+    'Waberlohe',
+    'Horn',
+    'Geschwisterliebe',
+    'Schwert',
+    'Jugendkraft',
+    'Walhall-b',
+    'Riesen',
+    'Feuerzauber',
+    'Schicksal',
+    'Unmuth',
+    'Liebe',
+    'Siegfried',
+    'Mannen',
+    'Vertrag'
+]
+
+motif2id = {
+    'Nibelungen': 'L-Ni',
+    'Ring': 'L-Ri',
+    'Nibelungenhass': 'L-NH',
+    'Mime': 'L-Mi',
+    'Ritt': 'L-RT',
+    'Waldweben': 'L-Wa',
+    'Waberlohe': 'L-Wa',
+    'Horn': 'L-Ho',
+    'Geschwisterliebe': 'L-Ge',
+    'Schwert': 'L-Sc',
+    'Jugendkraft': 'L-Ju',
+    'Walhall-b': 'L-WH',
+    'Riesen': 'L-RS',
+    'Feuerzauber': 'L-Fe',
+    'Schicksal': 'L-SK',
+    'Unmuth': 'L-Un',
+    'Liebe': 'L-Li',
+    'Siegfried': 'L-Si',
+    'Mannen': 'L-Ma',
+    'Vertrag': 'L-Ve'
+}
+
+motif2idx = {x: i for i, x in enumerate(idx2motif)}
+
+id2version = {
+    'Ba': 'Barenboim1991',
+    'Bh': 'Bohm1967',
+    'Bo': 'Boulez1980',
+    'Fu': 'Furtwangler1953',
+    'Ha': 'Haitink1988',
+    'Ja': 'Janowski1980',
+    'Ka': 'Karajan1966',
+    'Ke': 'KeilberthFurtw1952',
+    'Kr': 'Krauss1953',
+    'Le': 'Levine1987',
+    'Ne': 'Neuhold1993',
+    'Sa': 'Sawallisch1989',
+    'So': 'Solti1958',
+    'Sw': 'Swarowsky1968',
+    'Th': 'Thielemann2011',
+    'We': 'Weigle2010'
+}
+
+version2idx = {x: i for i, x in enumerate(id2version.keys())}
