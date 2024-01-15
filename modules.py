@@ -30,22 +30,46 @@ class DilatedMaxPool1d(nn.Module):
         return self.maxpool(padded_x)
     
 class RNNModel(torch.nn.Module):
-    def __init__(self, input_size=84, hidden_size=128, num_layers=3):
+    def __init__(self, input_size=84, hidden_size=128, num_layers=3, num_versions=8):
         super().__init__()
-        self.gru = nn.GRU(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
         self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
         self.proj = nn.Linear(hidden_size * 2, 21)
+        self.singing_mlp = nn.Sequential(
+            nn.Linear(hidden_size * 2, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 1),
+            nn.Sigmoid()
+        )
+        self.version_mlp = nn.Sequential(
+            nn.Linear(hidden_size * 2, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, num_versions),
+            nn.Sigmoid()
+        )
+    
+    def freeze_backbone(self):
+        self.lstm.requires_grad_(False)
+        self.singing_mlp.requires_grad_(True)
+        self.version_mlp.requires_grad_(True)
+
+    def unfreeze_backbone(self):
+        self.lstm.requires_grad_(True)
+        self.singing_mlp.requires_grad_(False)
+        self.version_mlp.requires_grad_(False)
     
     def forward(self, x):
-        x, _ = self.gru(x)
-        x = x.transpose(1, 2)
-        x = self.batch_norm(x)
-        x = x.transpose(1, 2)
-        x = self.proj(x)
-        return x.sigmoid()
+        lstm_out, _ = self.lstm(x)
+        lstm_out = lstm_out.transpose(1, 2)
+        lstm_out = self.batch_norm(lstm_out)
+        lstm_out = lstm_out.transpose(1, 2)
+        leitmotif_pred = self.proj(lstm_out).sigmoid()
+        singing_pred = self.singing_mlp(lstm_out)
+        version_pred = self.version_mlp(lstm_out)
+        return leitmotif_pred, singing_pred, version_pred
     
 class CNNModel(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_versions=8):
         super().__init__()
         self.stack1 = nn.Sequential(
             nn.Conv2d(1, 128, (3, 3), (1, 1), "same", (1, 1)),
@@ -83,12 +107,38 @@ class CNNModel(torch.nn.Module):
             DilatedMaxPool1d(3, 1, 27)
         )
         self.proj = nn.Linear(64, 21)
+        self.singing_mlp = nn.Sequential(
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+            nn.Sigmoid()
+        )
+        self.version_mlp = nn.Sequential(
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, num_versions),
+            nn.Sigmoid()
+        )
+    
+    def freeze_backbone(self):
+        self.stack1.requires_grad_(False)
+        self.stack2.requires_grad_(False)
+        self.singing_mlp.requires_grad_(True)
+        self.version_mlp.requires_grad_(True)
+
+    def unfreeze_backbone(self):
+        self.stack1.requires_grad_(True)
+        self.stack2.requires_grad_(True)
+        self.singing_mlp.requires_grad_(False)
+        self.version_mlp.requires_grad_(False)
     
     def forward(self, x):
         x = x.unsqueeze(1)
         x = self.stack1(x)
         x = x.squeeze(3)
         x = self.stack2(x)
-        x = x.transpose(1, 2)
-        x = self.proj(x)
-        return x.sigmoid()
+        cnn_out = x.transpose(1, 2)
+        leitmotif_pred = self.proj(cnn_out).sigmoid()
+        singing_pred = self.singing_mlp(cnn_out)
+        version_pred = self.version_mlp(cnn_out)
+        return leitmotif_pred, singing_pred, version_pred
