@@ -81,7 +81,8 @@ class Trainer:
                 singing_gt = singing_gt.to(self.device)
                 version_gt = version_gt.to(self.device)
                 leitmotif_pred, singing_pred, version_pred = self.model(cqt)
-                loss = self.bce(leitmotif_pred, leitmotif_gt)
+                leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
+                loss = leitmotif_loss
 
                 if epoch > 10:
                     # Adversarial train loop
@@ -106,7 +107,8 @@ class Trainer:
 
                 if self.cfg.log_to_wandb:
                     f1, precision, recall = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
-                    wandb.log({"train_loss": loss.item(), "train_precision": precision, "train_recall": recall, "train_f1": f1}, step=num_iter)
+                    wandb.log({"train_loss": leitmotif_loss.item(), "train_precision": precision, "train_recall": recall, "train_f1": f1}, step=num_iter)
+                    wandb.log({"total_loss": loss.item()}, step=num_iter)
                     if epoch > 10:
                         wandb.log({"adv_version_loss": version_loss.item()}, step=num_iter)
                         wandb.log({"adv_version_acc": get_multiclass_acc(version_pred, version_gt)}, step=num_iter)
@@ -117,7 +119,8 @@ class Trainer:
 
             if epoch == 10:
                 print("Training MLP submodules...")
-                self._train_mlp_submodules(num_epochs=1)
+                self._train_mlp_submodules(num_epochs=self.hyperparams.adv_num_epochs,
+                                           train_singing=self.cfg.train_singing)
 
             self.model.eval()
             with torch.inference_mode():
