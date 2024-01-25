@@ -68,6 +68,30 @@ def sample_non_overlapping_interval(intervals, duration):
     end = round(start + duration, 3)
     return (start, end)
 
+def get_binary_f1(pred, gt, threshold):
+    """
+    Returns (f1, precision, recall) for binary classification.\n
+    pred and gt must have the same shape.\n
+    """
+    tp = ((pred > threshold) & (gt == 1)).sum().item()
+    if tp == 0:
+        tp = 0.0001
+    fp = ((pred > threshold) & (gt == 0)).sum().item()
+    fn = ((pred <= threshold) & (gt == 1)).sum().item()
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f1 = 2 * precision * recall / (precision + recall)
+    return f1, precision, recall
+
+def get_multiclass_acc(pred, gt):
+    """
+    Returns accuracy for multiclass classification.\n
+    * pred: (batch, num_classes, length)
+    * gt: (batch, length)
+    """
+    pred = pred.argmax(dim=1)
+    return (pred == gt).sum().item() / (pred.shape[0] * pred.shape[1])
+
 idx2motif = [
     'Nibelungen',
     'Ring',

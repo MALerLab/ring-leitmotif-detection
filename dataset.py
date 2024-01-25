@@ -9,7 +9,8 @@ from data_utils import (
     generate_non_overlapping_intervals, 
     sample_non_overlapping_interval,
     motif2idx,
-    version2idx
+    version2idx,
+    id2version
 )
 
 # TODO: Does number of samples change every time you call sample_intervals()?
@@ -42,8 +43,10 @@ class LeitmotifDataset:
         else:
             self.audio_path = audio_path
 
-        print("Creating dataset...")
-        for fn in tqdm(self.cqt_fns):
+        print("Loading data...")
+        for fn in tqdm(self.cqt_fns, leave=False):
+            version = fn.stem.split("_")[0]
+            act = fn.stem.split("_")[1]
             # Load CQT data
             with open(fn, "rb") as f:
                 self.cqt[fn.stem] = torch.tensor(
@@ -53,7 +56,7 @@ class LeitmotifDataset:
             self.instances_gt[fn.stem] = torch.zeros(
                 (self.cqt[fn.stem].shape[0], 21))
             instances = list(pd.read_csv(
-                instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
+                instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
             for instance in instances:
                 motif = instance[0]
                 start = instance[1]
@@ -70,7 +73,7 @@ class LeitmotifDataset:
             self.singing_gt[fn.stem] = torch.zeros(
                 (self.cqt[fn.stem].shape[0], 1))
             singing_ann = pd.read_csv(
-                singing_ann_path / f"{fn.stem}.csv", sep=";").itertuples(index=False, name=None)
+                singing_ann_path / f"Wagner_WWV086{act}_{id2version[version]}.csv", sep=";").itertuples(index=False, name=None)
             for ann in singing_ann:
                 start = ann[0]
                 end = ann[1]
@@ -81,9 +84,10 @@ class LeitmotifDataset:
         self.sample_intervals()
 
     def sample_intervals(self):
+        print("Sampling intervals...")
         self.samples = []
         self.none_samples = []
-        for fn in tqdm(self.cqt_fns):
+        for fn in tqdm(self.cqt_fns, leave=False):
             instances = list(pd.read_csv(
                 self.instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
             total_duration = self.cqt[fn.stem].shape[0] * 512 // 22050
@@ -190,12 +194,14 @@ class LeitmotifDataset:
         if idx < len(self.samples):
             version, act, _, start, end = self.samples[idx]
             fn = f"{version}_{act}"
-            return self.cqt[fn][start:end, :], self.instances_gt[fn][start:end, :], self.singing_gt[fn][start:end, :], version
+            version_gt = torch.full((end - start, 1), version2idx[version])
+            return self.cqt[fn][start:end, :], self.instances_gt[fn][start:end, :], self.singing_gt[fn][start:end, :], version_gt
         else:
             idx -= len(self.samples)
             version, act, start, end = self.none_samples[idx]
             fn = f"{version}_{act}"
-            return self.cqt[fn][start:end, :], torch.zeros((end - start, 21)), self.singing_gt[fn][start:end, :], version
+            version_gt = torch.full((end - start, 1), version2idx[version])
+            return self.cqt[fn][start:end, :], torch.zeros((end - start, 21)), self.singing_gt[fn][start:end, :], version_gt
 
 
 class Subset:
@@ -215,5 +221,5 @@ def collate_fn(batch):
     cqt = torch.stack(cqt)
     leitmotif_gt = torch.stack(leitmotif_gt)
     singing_gt = torch.stack(singing_gt)
-    version_gt = [version2idx[x] for x in version_gt]
+    version_gt = torch.stack(version_gt)[..., 0]
     return cqt, leitmotif_gt, singing_gt, version_gt
