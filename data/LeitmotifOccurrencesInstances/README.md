@@ -41,23 +41,28 @@ in "Instances/Wagner_RingBarenboimKupfer_WC2009/B-2.csv" signifies that there is
 
 A table of the performances used in this study, including ID, conductors, years of recording and length, can be found in the paper. The following table provides helpful information for identifying the exact CD releases:
 
+?? Different release
+== Found
+// Included
+!! Can't find
+
 ID in Paper | Label | Year of release | Conductor, Orchestra, Choir
 --- | --- | --- | ---
-P-Ba | WC | 2009 | Daniel Barenboim, Chor und Orchester der Bayreuther Festspiele
-P-Ha | EMI | 2008 | Bernard Haitink, Symphonieorchester und Chor des Bayrischen Rundfunks
-P-Ka | DG | 1998 | Herbert von Karajan, Berliner Philharmoniker, Chor der Deutschen Oper Berlin
-P-Sa | EMI | 2012 | Wolfgang Sawallisch, Bayrisches Staatsorchester, Chor der Bayrischen Staatsoper
-P-So | DECCA | 2012 | Georg Solti, Wiener Staatsopernchor, Wiener Philharmoniker
-P-We | OEHMS | 2013 | Sebastian Weigle, Frankfurter Opern- und Museumsorchester, Chor und Herren des Extrachores der Oper Frankfurt
-P-Bo | PHILIPS | 2006 | Pierre Boulez, Chor und Orchester der Bayreuther Festspiele
-P-Bö | DECCA | 2008 | Karl Böhm, Chor und Orchester der Bayreuther Festspiele
-P-Fu | EMI | 2011 | Wilhelm Furtwängler, Orchestra Sinfonica della Radio Italiana, Coro della Radio Italiana
-P-Ja | SONY | 2012 | Marek Janowski, Staatskapelle Dresden, Männer des Staatsopernchores Leipzig, Staatsopernchor Dresden
-P-Ke | ZYX | 2012 | Joseph Keilberth, Chor und Orchester der Bayreuther Festspiele; Wilhelm Furtwängler, Wiener Philharmoniker
-P-Kr | ORFEO | 2010 | Clemens Krauss, Chor und Orchester der Bayreuther Festspiele
-P-Le | DG | 2012 | James Levine, The Metropolitan Opera Orchestra, The Metropolitan Opera Chorus
-P-Ne | MEMBRAN | 1995 | Günther Neuhold, Badische Staatskapelle, Badischer Staatsopernchor
-P-Sw | PROFIL | 2013 | Hans Swarowsky, Grosses Symphonieorchester mit Mitgliedern der Tschechischen Philharmonie und des Orchesters des Nationaltheaters Prag, Chor der Wiener Volksoper
-P-Th | DG | 2013 | Christian Thielemann, Chor und Zusatzchor der Wiener Staatsoper, Orchester der Wiener Staatsoper, Bühnenorchester der Wiener Staatsoper
+??P-Ba | WC | 2009 | Daniel Barenboim, Chor und Orchester der Bayreuther Festspiele
+??P-Ha | EMI | 2008 | Bernard Haitink, Symphonieorchester und Chor des Bayrischen Rundfunks
+==P-Ka | DG | 1998 | Herbert von Karajan, Berliner Philharmoniker, Chor der Deutschen Oper Berlin
+!!P-Sa | EMI | 2012 | Wolfgang Sawallisch, Bayrisches Staatsorchester, Chor der Bayrischen Staatsoper
+??P-So | DECCA | 2012 | Georg Solti, Wiener Staatsopernchor, Wiener Philharmoniker
+==P-We | OEHMS | 2013 | Sebastian Weigle, Frankfurter Opern- und Museumsorchester, Chor und Herren des Extrachores der Oper Frankfurt
+==P-Bo | PHILIPS | 2006 | Pierre Boulez, Chor und Orchester der Bayreuther Festspiele
+??P-Bö | DECCA | 2008 | Karl Böhm, Chor und Orchester der Bayreuther Festspiele
+//P-Fu | EMI | 2011 | Wilhelm Furtwängler, Orchestra Sinfonica della Radio Italiana, Coro della Radio Italiana
+??P-Ja | SONY | 2012 | Marek Janowski, Staatskapelle Dresden, Männer des Staatsopernchores Leipzig, Staatsopernchor Dresden
+//P-Ke | ZYX | 2012 | Joseph Keilberth, Chor und Orchester der Bayreuther Festspiele; Wilhelm Furtwängler, Wiener Philharmoniker
+//P-Kr | ORFEO | 2010 | Clemens Krauss, Chor und Orchester der Bayreuther Festspiele
+??P-Le | DG | 2012 | James Levine, The Metropolitan Opera Orchestra, The Metropolitan Opera Chorus
+!!P-Ne | MEMBRAN | 1995 | Günther Neuhold, Badische Staatskapelle, Badischer Staatsopernchor
+==P-Sw | PROFIL | 2013 | Hans Swarowsky, Grosses Symphonieorchester mit Mitgliedern der Tschechischen Philharmonie und des Orchesters des Nationaltheaters Prag, Chor der Wiener Volksoper
+==P-Th | DG | 2013 | Christian Thielemann, Chor und Zusatzchor der Wiener Staatsoper, Orchester der Wiener Staatsoper, Bühnenorchester der Wiener Staatsoper
 
 Thus, the performance by Wolfgang Sawallisch (P-Sa) was released by EMI in 2012.

@@ -4,7 +4,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
-from dataset import LeitmotifDataset, Subset, collate_fn
+from dataset import AudioDataset, Subset, collate_fn
 from modules import RNNModel, CNNModel
 from data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
@@ -161,9 +161,12 @@ def main(config: DictConfig):
     hyperparams = config.hyperparams
     DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
-    base_set = LeitmotifDataset(Path("data/CQT"), 
-                                Path("data/LeitmotifOccurrencesInstances/Instances"),
-                                Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"))
+    base_set = AudioDataset(Path("data/wav-22050"), 
+                            Path("data/LeitmotifOccurrencesInstances/Instances"),
+                            Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
+                            mixup_prob = hyperparams.mixup_prob,
+                            mixup_alpha = hyperparams.mixup_alpha,
+                            device = DEV)
     train_set, valid_set, test_set = None, None, None
     if cfg.split == "version":
         train_set = Subset(base_set, base_set.get_subset_idxs(versions=C.TRAIN_VERSIONS))
