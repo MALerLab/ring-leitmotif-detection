@@ -1,0 +1,21 @@
+program: train_sweep.py
+name: rnn-sweep
+method: grid
+metric:
+  goal: maximize
+  name: valid_f1
+parameters:
+  split:
+    value: version
+  model:
+    value: RNN
+  num_epochs:
+    value: 11
+  mlp_hidden_size_multiplier:
+    values: [1, 2]
+  adv_grad_multiplier:
+    values: [0.005, 0.01, 0.1, 0.5]
+  adv_grad_iter:
+    values: [1, 2000]
+  train_singing:
+    values: [false, true]
