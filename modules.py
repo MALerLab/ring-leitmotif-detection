@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+
 class DilatedMaxPool2d(nn.Module):
     """
     Dilated MaxPool2d that keeps the time dimension size.
@@ -56,7 +57,8 @@ class GradientReversal(nn.Module):
 class RNNModel(torch.nn.Module):
     def __init__(self, 
                  input_size=84, 
-                 hidden_size=128, 
+                 hidden_size=128,
+                 mlp_hidden_size=128,
                  num_layers=3, 
                  num_versions=16,
                  adv_grad_multiplier=0.01):
@@ -66,16 +68,16 @@ class RNNModel(torch.nn.Module):
         self.proj = nn.Linear(hidden_size * 2, 21)
         self.singing_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(hidden_size * 2, hidden_size),
+            nn.Linear(hidden_size * 2, mlp_hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, 1),
+            nn.Linear(mlp_hidden_size, 1),
             nn.Sigmoid()
         )
         self.version_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(hidden_size * 2, hidden_size),
+            nn.Linear(hidden_size * 2, mlp_hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, num_versions)
+            nn.Linear(mlp_hidden_size, num_versions)
         )
     
     def freeze_backbone(self):
@@ -99,7 +101,10 @@ class RNNModel(torch.nn.Module):
         return leitmotif_pred, singing_pred, version_pred
     
 class CNNModel(torch.nn.Module):
-    def __init__(self, num_versions=16, adv_grad_multiplier=0.01):
+    def __init__(self,
+                 num_versions=16,
+                 adv_grad_multiplier=0.01,
+                 mlp_hidden_size=64):
         super().__init__()
         self.stack1 = nn.Sequential(
             nn.Conv2d(1, 128, (3, 3), (1, 1), "same", (1, 1)),
@@ -139,16 +144,16 @@ class CNNModel(torch.nn.Module):
         self.proj = nn.Linear(64, 21)
         self.singing_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(64, 64),
+            nn.Linear(64, mlp_hidden_size),
             nn.ReLU(),
-            nn.Linear(64, 1),
+            nn.Linear(mlp_hidden_size, 1),
             nn.Sigmoid()
         )
         self.version_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(64, 64),
+            nn.Linear(64, mlp_hidden_size),
             nn.ReLU(),
-            nn.Linear(64, num_versions)
+            nn.Linear(mlp_hidden_size, num_versions)
         )
     
     def freeze_backbone(self):

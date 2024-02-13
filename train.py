@@ -84,7 +84,7 @@ class Trainer:
                 leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                 loss = leitmotif_loss
 
-                if epoch > 10:
+                if epoch > -1:
                     # Adversarial train loop
                     version_pred = version_pred.permute(0, 2, 1)
                     version_loss = self.ce(version_pred, version_gt)
@@ -109,7 +109,7 @@ class Trainer:
                     f1, precision, recall = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
                     wandb.log({"train_loss": leitmotif_loss.item(), "train_precision": precision, "train_recall": recall, "train_f1": f1}, step=num_iter)
                     wandb.log({"total_loss": loss.item()}, step=num_iter)
-                    if epoch > 10:
+                    if epoch > -1:
                         wandb.log({"adv_version_loss": version_loss.item()}, step=num_iter)
                         wandb.log({"adv_version_acc": get_multiclass_acc(version_pred, version_gt)}, step=num_iter)
                         if self.cfg.train_singing:
@@ -117,10 +117,10 @@ class Trainer:
                             wandb.log({"adv_singing_loss": singing_loss.item(), "adv_singing_train_f1": f1}, step=num_iter)
                 num_iter += 1
 
-            if epoch == 10:
-                print("Training MLP submodules...")
-                self._train_mlp_submodules(num_epochs=self.hyperparams.adv_num_epochs,
-                                           train_singing=self.cfg.train_singing)
+            # if epoch == 10:
+            #     print("Training MLP submodules...")
+            #     self._train_mlp_submodules(num_epochs=self.hyperparams.adv_num_epochs,
+            #                                train_singing=self.cfg.train_singing)
 
             self.model.eval()
             with torch.inference_mode():
@@ -180,15 +180,30 @@ def main(config: DictConfig):
 
     model = None
     if cfg.model == "RNN":
-        model = RNNModel(hidden_size=hyperparams.hidden_size,
-                         num_layers=hyperparams.num_layers,
-                         adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+        if hyperparams.mlp_hidden_size != 'default':
+            model = RNNModel(hidden_size=hyperparams.hidden_size,
+                             mlp_hidden_size=hyperparams.mlp_hidden_size,
+                             num_layers=hyperparams.num_layers,
+                             adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+        else:
+            model = RNNModel(hidden_size=hyperparams.hidden_size,
+                             num_layers=hyperparams.num_layers,
+                             adv_grad_multiplier=hyperparams.adv_grad_multiplier)
     elif cfg.model == "CNN":
-        model = CNNModel(adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+        if hyperparams.mlp_hidden_size != 'default':
+            model = CNNModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
+                             adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+        else:
+            model = CNNModel(adv_grad_multiplier=hyperparams.adv_grad_multiplier)
     else:
         raise ValueError("Invalid model name")
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparams.lr)
+    mlp_params = [param for name, param in model.named_parameters() if 'mlp' in name]
+    backbone_params = [param for name, param in model.named_parameters() if 'mlp' not in name]
+    optimizer = torch.optim.Adam([
+        {'params': mlp_params, 'lr': hyperparams.lr * hyperparams.adv_lr_multiplier},
+        {'params': backbone_params, 'lr': hyperparams.lr}
+    ])
     trainer = Trainer(model, optimizer, train_loader, valid_loader, DEV, cfg, hyperparams)
     
     trainer.train()
