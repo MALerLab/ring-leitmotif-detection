@@ -11,9 +11,10 @@ from data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
 
 class Trainer:
-    def __init__(self, model, optimizer, train_loader, valid_loader, device, cfg):
+    def __init__(self, model, optimizer, dataset, train_loader, valid_loader, device, cfg):
         self.model = model
         self.optimizer = optimizer
+        self.dataset = dataset
         self.train_loader = train_loader
         self.valid_loader = valid_loader
         self.device = device
@@ -45,6 +46,7 @@ class Trainer:
     def _train_mlp_submodules(self, num_epochs=1, train_singing=False):
         self.model.train()
         self.model.freeze_backbone()
+        self.dataset.enable_mixup()
         for epoch in tqdm(range(num_epochs), leave=False):
             for batch in tqdm(self.train_loader, leave=False):        
                 cqt, _, singing_gt, version_gt = batch
@@ -70,6 +72,7 @@ class Trainer:
         for epoch in tqdm(range(self.cur_epoch, wandb.config.num_epochs)):
             self.cur_epoch = epoch
             self.model.train()
+            self.dataset.enable_mixup()
             for batch in tqdm(self.train_loader, leave=False):
                 # Leitmotif train loop
                 cqt, leitmotif_gt, singing_gt, version_gt = batch
@@ -111,6 +114,7 @@ class Trainer:
                 num_iter += 1
 
             self.model.eval()
+            self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
                 total_precision = 0
@@ -169,10 +173,10 @@ def main():
 
     model = None
     if wandb.config.model == "RNN":
-        model = RNNModel(mlp_hidden_size=128 * wandb.config.mlp_hidden_size_multiplier,
+        model = RNNModel(mlp_hidden_size=int(128 * wandb.config.mlp_hidden_size_multiplier),
                          adv_grad_multiplier=wandb.config.adv_grad_multiplier)
     elif wandb.config.model == "CNN":
-        model = CNNModel(mlp_hidden_size=64 * wandb.config.mlp_hidden_size_multiplier,
+        model = CNNModel(mlp_hidden_size=int(64 * wandb.config.mlp_hidden_size_multiplier),
                          adv_grad_multiplier=wandb.config.adv_grad_multiplier)
     
     mlp_params = [param for name, param in model.named_parameters() if 'mlp' in name]
@@ -181,7 +185,7 @@ def main():
         {'params': mlp_params, 'lr': 0.02},
         {'params': backbone_params, 'lr': 0.002}
     ])
-    trainer = Trainer(model, optimizer, train_loader, valid_loader, DEV, run)
+    trainer = Trainer(model, optimizer, base_set, train_loader, valid_loader, DEV, run)
     
     trainer.train()
 

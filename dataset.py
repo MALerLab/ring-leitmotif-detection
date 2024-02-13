@@ -33,6 +33,7 @@ class AudioDataset:
         self.duration_sec = duration_sec
         self.duration_samples = duration_samples
         self.mixup_prob = mixup_prob
+        self.cur_mixup_prob = mixup_prob
         self.mixup_alpha = mixup_alpha
         self.device = device
 
@@ -198,6 +199,12 @@ class AudioDataset:
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
             return self.wavs[fn][start_samp:end_samp]
+        
+    def enable_mixup(self):
+        self.cur_mixup_prob = self.mixup_prob
+    
+    def disable_mixup(self):
+        self.cur_mixup_prob = 0
 
     def __len__(self):
         return len(self.samples) + len(self.none_samples)
@@ -210,7 +217,7 @@ class AudioDataset:
             end_samp = start_samp + (self.duration_sec * 22050)
             wav = self.wavs[fn][start_samp:end_samp]
 
-            if random.random() < self.mixup_prob:
+            if random.random() < self.cur_mixup_prob:
                 mixup_idx = random.randint(0, len(self.none_samples) - 1)
                 v, a, s, _ = self.none_samples[mixup_idx]
                 mixup_wav = self.wavs[f"{v}_{a}"][s * 512:s * 512 + (self.duration_sec * 22050)]

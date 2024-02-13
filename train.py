@@ -10,9 +10,10 @@ from data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
 
 class Trainer:
-    def __init__(self, model, optimizer, train_loader, valid_loader, device, cfg, hyperparams):
+    def __init__(self, model, optimizer, dataset, train_loader, valid_loader, device, cfg, hyperparams):
         self.model = model
         self.optimizer = optimizer
+        self.dataset = dataset
         self.train_loader = train_loader
         self.valid_loader = valid_loader
         self.device = device
@@ -45,6 +46,7 @@ class Trainer:
     def _train_mlp_submodules(self, num_epochs=1, train_singing=False):
         self.model.train()
         self.model.freeze_backbone()
+        self.dataset.enable_mixup()
         for epoch in tqdm(range(num_epochs), leave=False):
             for batch in tqdm(self.train_loader, leave=False):        
                 cqt, _, singing_gt, version_gt = batch
@@ -73,6 +75,7 @@ class Trainer:
         for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs)):
             self.cur_epoch = epoch
             self.model.train()
+            self.dataset.enable_mixup()
             for batch in tqdm(self.train_loader, leave=False):
                 # Leitmotif train loop
                 cqt, leitmotif_gt, singing_gt, version_gt = batch
@@ -123,6 +126,7 @@ class Trainer:
             #                                train_singing=self.cfg.train_singing)
 
             self.model.eval()
+            self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
                 total_precision = 0
@@ -207,7 +211,7 @@ def main(config: DictConfig):
         {'params': mlp_params, 'lr': hyperparams.lr * hyperparams.adv_lr_multiplier},
         {'params': backbone_params, 'lr': hyperparams.lr}
     ])
-    trainer = Trainer(model, optimizer, train_loader, valid_loader, DEV, cfg, hyperparams)
+    trainer = Trainer(model, optimizer, base_set, train_loader, valid_loader, DEV, cfg, hyperparams)
     
     trainer.train()
 
