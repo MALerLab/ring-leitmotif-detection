@@ -5,6 +5,7 @@ import random
 import pandas as pd
 import torch
 import torchaudio
+from nnAudio.features.cqt import CQT1992v2
 from tqdm.auto import tqdm
 from data_utils import (
     sample_instance_intervals,
@@ -15,7 +16,7 @@ from data_utils import (
     id2version
 )
 
-class AudioDataset:
+class OTFDataset:
     def __init__(
             self,
             wav_path:Path,
@@ -42,7 +43,7 @@ class AudioDataset:
         self.singing_gts = {}
         self.samples = []
         self.none_samples = []
-        self.transform = torchaudio.transforms.MelSpectrogram(sample_rate=22050, n_fft=1024, hop_length=512, n_mels=84).to(self.device)
+        self.transform = CQT1992v2().to(self.device)
 
         print("Loading data...")
         for fn in tqdm(self.wav_fns, leave=False):
@@ -223,18 +224,18 @@ class AudioDataset:
                 mixup_wav = self.wavs[f"{v}_{a}"][s * 512:s * 512 + (self.duration_sec * 22050)]
                 wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
 
-            melspec = self.transform(wav.to(self.device))
+            cqt = self.transform(wav.to(self.device))
             version_gt = torch.full((end - start, 1), version2idx[version])
-            return melspec.T, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
+            return cqt.T, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
         else:
             idx -= len(self.samples)
             version, act, start, end = self.none_samples[idx]
             fn = f"{version}_{act}"
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
-            melspec = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device))
+            cqt = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device))
             version_gt = torch.full((end - start, 1), version2idx[version])
-            return melspec.T, torch.zeros((end - start, 21)), self.singing_gts[fn][start:end, :], version_gt
+            return cqt.T, torch.zeros((end - start, 21)), self.singing_gts[fn][start:end, :], version_gt
 
 class CQTDataset:
     def __init__(
