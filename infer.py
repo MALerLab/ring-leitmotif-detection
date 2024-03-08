@@ -1,10 +1,12 @@
 from pathlib import Path
+import datetime
 import torch
 import pandas as pd
+from nnAudio.features.cqt import CQT1992v2
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
-from dataset import LeitmotifDataset, Subset, collate_fn
+from dataset import OTFDataset, Subset, collate_fn
 from data_utils import get_binary_f1, id2version, idx2motif
 from modules import RNNModel, CNNModel
 import constants as C
@@ -72,24 +74,26 @@ def main(config: DictConfig):
     hyperparams = config.hyperparams
     DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
-    dataset = LeitmotifDataset(Path("data/CQT"),
-                                Path("data/LeitmotifOccurrencesInstances/Instances"),
-                                Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"))
+    dataset = OTFDataset(Path("data/wav-22050"),
+                         Path("data/LeitmotifOccurrencesInstances/Instances"),
+                         Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
+                         mixup_prob=0,
+                         mixup_alpha=0)
 
     files = []
-    cqt = {}
-    instances_gt = {}
+    wavs = {}
+    instances_gts = {}
     singing_gt = {}
     if cfg.split == "version":
-        cqt = {k: v for k, v in dataset.cqt.items() if k.split("_")[0] in C.VALID_VERSIONS}
-        instances_gt = {k: v for k, v in dataset.instances_gt.items() if k.split("_")[0] in C.VALID_VERSIONS}
-        singing_gt = {k: v for k, v in dataset.singing_gt.items() if k.split("_")[0] in C.VALID_VERSIONS}
-        files = [k for k in cqt.keys()]
+        wavs = {k: v for k, v in dataset.wavs.items() if k.split("_")[0] in C.VALID_VERSIONS}
+        instances_gts = {k: v for k, v in dataset.instances_gts.items() if k.split("_")[0] in C.VALID_VERSIONS}
+        singing_gt = {k: v for k, v in dataset.singing_gts.items() if k.split("_")[0] in C.VALID_VERSIONS}
+        files = [k for k in wavs.keys()]
     elif cfg.split == "act":
-        cqt = {k: v for k, v in dataset.cqt.items() if k.split("_")[1] in C.VALID_ACTS}
-        instances_gt = {k: v for k, v in dataset.instances_gt.items() if k.split("_")[1] in C.VALID_ACTS}
-        singing_gt = {k: v for k, v in dataset.singing_gt.items() if k.split("_")[1] in C.VALID_ACTS}
-        files = [k for k in cqt.keys()]
+        wavs = {k: v for k, v in dataset.wavs.items() if k.split("_")[1] in C.VALID_ACTS}
+        instances_gts = {k: v for k, v in dataset.instances_gts.items() if k.split("_")[1] in C.VALID_ACTS}
+        singing_gt = {k: v for k, v in dataset.singing_gts.items() if k.split("_")[1] in C.VALID_ACTS}
+        files = [k for k in wavs.keys()]
 
     model = None
     if cfg.model == "RNN":
@@ -98,7 +102,8 @@ def main(config: DictConfig):
         model = CNNModel()
     else:
         raise ValueError("Invalid model name")
-    model.load_state_dict(torch.load(cfg.load_checkpoint)["model"])
+    # model.load_state_dict(torch.load(cfg.load_checkpoint)["model"])
+    model.load_state_dict(torch.load("checkpoints/RNN/prelim_baseline_epoch24.pt")["model"])
     model.to(DEV)
 
     print(f'Inferring on {len(files)} files with {cfg.model}.')
@@ -107,12 +112,12 @@ def main(config: DictConfig):
     leitmotif_gts = []
     singing_gts = []
     for fn in tqdm(files):
-        cqt_fn = cqt[fn]
-        cqt_fn = cqt_fn.to(DEV)
+        wav = wavs[fn]
+        cqt = dataset.transform(wav.to(DEV)).squeeze(0).T
         if cfg.model == "RNN":
-            leitmotif_pred, singing_pred = infer_rnn(model, cqt_fn)
+            leitmotif_pred, singing_pred = infer_rnn(model, cqt)
         elif cfg.model == "CNN":
-            leitmotif_pred, singing_pred = infer_cnn(model, cqt_fn)
+            leitmotif_pred, singing_pred = infer_cnn(model, cqt)
 
         # Apply median filter
         for i in range(leitmotif_pred.shape[1]):
@@ -151,7 +156,7 @@ def main(config: DictConfig):
             if start == end: continue
             if start > leitmotif_pred.shape[0]: break
             leitmotif_out[i, :] = leitmotif_pred[start:end, :].max(dim=0).values
-            leitmotif_gt[i, :] = instances_gt[fn][start:end, :].max(dim=0).values
+            leitmotif_gt[i, :] = instances_gts[fn][start:end, :].max(dim=0).values
 
         leitmotif_preds.append(leitmotif_out)
         singing_preds.append(singing_pred)
@@ -165,23 +170,30 @@ def main(config: DictConfig):
 
     print("Performing threshold grid search...")
     # Threshold grid search
-    thresholds = list(range(0.1, 0.9, 0.1))
+    thresholds = [x * 0.01 for x in range(10, 100, 5)]
     best_f1 = [0 for _ in range(21)]
     best_threshold = [0 for _ in range(21)]
-    precision = [0 for _ in range(21)]
-    recall = [0 for _ in range(21)]
+    best_precision = [0 for _ in range(21)]
+    best_recall = [0 for _ in range(21)]
     for threshold in tqdm(thresholds, leave=False):
         for i in range(21):
             f1, precision, recall = get_binary_f1(leitmotif_preds[:, i], leitmotif_gts[:, i], threshold)
             if f1 > best_f1[i]:
                 best_f1[i] = f1
                 best_threshold[i] = threshold
-                precision[i] = precision
-                recall[i] = recall
+                best_precision[i] = precision
+                best_recall[i] = recall
 
-    print(f"=== Evaluation Results ===")
-    for i in range(20):
-        print(f"{idx2motif[i]:>{16}} | P: {precision[i]:3d}, R: {recall[i]}, F1: {best_f1[i]}, Threshold: {best_threshold[i]}")
+    now = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    print(f"=========== Evaluation Results ============")
+    with open(f"inference-log-{now}.txt", "w") as f:
+        f.write(f"Model: {cfg.model}\n")
+        f.write(f"Checkpoint: {cfg.load_checkpoint}\n")
+        f.write(f"Number of files: {len(files)}\n")
+        f.write(f"=========== Evaluation Results ============\n")
+        for i in range(20):
+            f.write(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]}\n")
+            print(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]}")
 
 if __name__ == "__main__":
     main()
