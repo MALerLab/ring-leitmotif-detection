@@ -224,7 +224,7 @@ class OTFDataset:
                 mixup_wav = self.wavs[f"{v}_{a}"][s * 512:s * 512 + (self.duration_sec * 22050)]
                 wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
 
-            cqt = self.transform(wav.to(self.device))
+            cqt = self.transform(wav.to(self.device)).squeeze(0)
             version_gt = torch.full((end - start, 1), version2idx[version])
             return cqt.T, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
         else:
@@ -233,7 +233,7 @@ class OTFDataset:
             fn = f"{version}_{act}"
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
-            cqt = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device))
+            cqt = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device)).squeeze(0)
             version_gt = torch.full((end - start, 1), version2idx[version])
             return cqt.T, torch.zeros((end - start, 21)), self.singing_gts[fn][start:end, :], version_gt
 
