@@ -17,7 +17,7 @@ hyperparams:
   lr: 0.002
   adv_lr_multiplier: 10
   num_epochs: 25
-  # adv_num_epochs: 2
+  train_adv: false
   adv_grad_multiplier: 0.01
   adv_grad_iter: 2000
   mlp_hidden_size: default

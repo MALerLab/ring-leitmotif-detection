@@ -47,8 +47,8 @@ class Trainer:
         self.model.train()
         self.model.freeze_backbone()
         self.dataset.enable_mixup()
-        for epoch in tqdm(range(num_epochs), leave=False):
-            for batch in tqdm(self.train_loader, leave=False):        
+        for epoch in tqdm(range(num_epochs), leave=False, ascii=True):
+            for batch in tqdm(self.train_loader, leave=False, ascii=True):        
                 cqt, _, singing_gt, version_gt = batch
                 cqt = cqt.to(self.device)
                 singing_gt = singing_gt.to(self.device)
@@ -72,11 +72,11 @@ class Trainer:
         self.model.to(self.device)
         num_iter = 0
         adv_iter = 0
-        for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs)):
+        for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs), ascii=True):
             self.cur_epoch = epoch
             self.model.train()
             self.dataset.enable_mixup()
-            for batch in tqdm(self.train_loader, leave=False):
+            for batch in tqdm(self.train_loader, leave=False, ascii=True):
                 # Leitmotif train loop
                 cqt, leitmotif_gt, singing_gt, version_gt = batch
                 cqt = cqt.to(self.device)
@@ -87,7 +87,7 @@ class Trainer:
                 leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                 loss = leitmotif_loss
 
-                if epoch > -1:
+                if self.hyperparams.train_adv:
                     # Adversarial train loop
                     version_pred = version_pred.permute(0, 2, 1)
                     version_loss = self.ce(version_pred, version_gt)
@@ -100,7 +100,7 @@ class Trainer:
                     adv_loss_multiplier = min(1, adv_iter / self.hyperparams.adv_grad_iter)
                     loss += adv_loss_multiplier * adv_loss
                     if self.cfg.log_to_wandb:
-                        wandb.log({"adv_loss_multiplier": adv_loss_multiplier}, step=num_iter)
+                        wandb.log({"adv/loss_multiplier": adv_loss_multiplier}, step=num_iter)
                     adv_iter += 1
 
                 self.optimizer.zero_grad()
@@ -110,20 +110,15 @@ class Trainer:
 
                 if self.cfg.log_to_wandb:
                     f1, precision, recall = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
-                    wandb.log({"train_loss": leitmotif_loss.item(), "train_precision": precision, "train_recall": recall, "train_f1": f1}, step=num_iter)
-                    wandb.log({"total_loss": loss.item()}, step=num_iter)
-                    if epoch > -1:
-                        wandb.log({"adv_version_loss": version_loss.item()}, step=num_iter)
-                        wandb.log({"adv_version_acc": get_multiclass_acc(version_pred, version_gt)}, step=num_iter)
+                    wandb.log({"train/loss": leitmotif_loss.item(), "train/precision": precision, "train/recall": recall, "train/f1": f1}, step=num_iter)
+                    wandb.log({"train/total_loss": loss.item()}, step=num_iter)
+                    if self.hyperparams.train_adv:
+                        wandb.log({"adv/version_loss": version_loss.item()}, step=num_iter)
+                        wandb.log({"adv/version_acc": get_multiclass_acc(version_pred, version_gt)}, step=num_iter)
                         if self.cfg.train_singing:
                             f1, precision, recall = get_binary_f1(singing_pred, singing_gt, 0.5)
-                            wandb.log({"adv_singing_loss": singing_loss.item(), "adv_singing_train_f1": f1}, step=num_iter)
+                            wandb.log({"adv/singing_loss": singing_loss.item(), "adv/singing_train_f1": f1}, step=num_iter)
                 num_iter += 1
-
-            # if epoch == 10:
-            #     print("Training MLP submodules...")
-            #     self._train_mlp_submodules(num_epochs=self.hyperparams.adv_num_epochs,
-            #                                train_singing=self.cfg.train_singing)
 
             self.model.eval()
             self.dataset.disable_mixup()
@@ -132,7 +127,7 @@ class Trainer:
                 total_precision = 0
                 total_recall = 0
                 total_f1 = 0
-                for batch in tqdm(self.valid_loader, leave=False):
+                for batch in tqdm(self.valid_loader, leave=False, ascii=True):
                     cqt, leitmotif_gt, singing_gt, version_gt = batch
                     cqt = cqt.to(self.device)
                     leitmotif_gt = leitmotif_gt.to(self.device)
@@ -152,7 +147,7 @@ class Trainer:
                     avg_precision = total_precision / len(self.valid_loader)
                     avg_recall = total_recall / len(self.valid_loader)
                     avg_f1 = total_f1 / len(self.valid_loader)
-                    wandb.log({"valid_loss": avg_loss, "valid_precision": avg_precision, "valid_recall": avg_recall, "valid_f1": avg_f1})
+                    wandb.log({"valid/loss": avg_loss, "valid/precision": avg_precision, "valid/recall": avg_recall, "valid/f1": avg_f1})
             
             self.save_checkpoint()
         

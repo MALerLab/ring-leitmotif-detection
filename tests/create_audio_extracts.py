@@ -8,16 +8,18 @@ wav_path = Path('../data/wav-22050')
 instances_path = Path('../data/LeitmotifOccurrencesInstances/Instances')
 wav_fns = sorted(list(wav_path.glob("*.pt")))
 
-for fn in tqdm(wav_fns):
+for fn in tqdm(wav_fns, ascii=True):
     version = fn.stem.split("_")[0]
     act = fn.stem.split("_")[1]
     instances = list(pd.read_csv(
         instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
+    instances.sort(key=lambda x: x[1])
+    instances_headtail = instances[:3] + instances[-3:]
     
     y = torch.load(fn)
     y = y.unsqueeze(0).expand(2, -1)
 
-    for instance in tqdm(instances, leave=False):
+    for instance in tqdm(instances_headtail, leave=False, ascii=True):
         motif = instance[0]
         start = instance[1]
         end = instance[2]
