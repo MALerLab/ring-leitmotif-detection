@@ -1,11 +1,12 @@
 from pathlib import Path
+import random
 import torch
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules import RNNModel, CNNModel
+from modules import RNNModel, CNNModel, RNNAdvModel, CNNAdvModel
 from data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
 
@@ -22,16 +23,16 @@ class Trainer:
         self.bce = torch.nn.BCELoss()
         self.ce = torch.nn.CrossEntropyLoss()
         self.cur_epoch = 0
+        self.ckpt_dir = Path(f"checkpoints/{self.cfg.model}")
+        self.ckpt_dir.mkdir(parents=True, exist_ok=True)
     
-    def save_checkpoint(self):
+    def save_checkpoint(self, ckpt_path):
         ckpt = {
             "epoch": self.cur_epoch,
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict()
         }
-        ckpt_dir = Path(f"checkpoints/{self.cfg.model}")
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(ckpt, ckpt_dir / f"{self.cfg.run_name}_epoch{self.cur_epoch}.pt")
+        torch.save(ckpt, ckpt_path)
 
     def load_checkpoint(self):
         ckpt = torch.load(self.cfg.load_checkpoint)
@@ -67,11 +68,16 @@ class Trainer:
 
     def train(self):
         if self.cfg.log_to_wandb:
-            wandb.init(project="ring-leitmotif", name=self.cfg.run_name, config=OmegaConf.to_container(self.cfg))
+            wandb.init(project=self.cfg.wandb_project,
+                       name=self.cfg.run_name, 
+                       config={**OmegaConf.to_container(self.cfg),
+                               **OmegaConf.to_container(self.hyperparams)})
         
         self.model.to(self.device)
         num_iter = 0
         adv_iter = 0
+        best_valid_f1 = 0
+        last_ckpt_path = None
         for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs), ascii=True):
             self.cur_epoch = epoch
             self.model.train()
@@ -141,15 +147,22 @@ class Trainer:
                         total_precision += precision
                         total_recall += recall
                         total_f1 += f1
+                
+                avg_f1 = total_f1 / len(self.valid_loader)
                     
                 if self.cfg.log_to_wandb:
                     avg_loss = total_loss / len(self.valid_loader)
                     avg_precision = total_precision / len(self.valid_loader)
                     avg_recall = total_recall / len(self.valid_loader)
-                    avg_f1 = total_f1 / len(self.valid_loader)
                     wandb.log({"valid/loss": avg_loss, "valid/precision": avg_precision, "valid/recall": avg_recall, "valid/f1": avg_f1})
-            
-            self.save_checkpoint()
+
+                if avg_f1 > best_valid_f1:
+                    best_valid_f1 = avg_f1
+                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_epoch{self.cur_epoch}_{avg_f1}.pt"
+                    if last_ckpt_path is not None:
+                        last_ckpt_path.unlink(missing_ok=True)
+                    last_ckpt_path = ckpt_path
+                    self.save_checkpoint(ckpt_path)
         
         if self.cfg.log_to_wandb:
             wandb.finish()
@@ -160,6 +173,7 @@ def main(config: DictConfig):
     hyperparams = config.hyperparams
     DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
+    random.seed(cfg.random_seed)
     base_set = OTFDataset(Path("data/wav-22050"), 
                           Path("data/LeitmotifOccurrencesInstances/Instances"),
                           Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
@@ -186,12 +200,10 @@ def main(config: DictConfig):
     elif cfg.model == "CNN":
         model = CNNModel()
     elif cfg.model == "RNNAdv":
-        model = RNNModel(hidden_size=hyperparams.hidden_size,
-                         mlp_hidden_size=hyperparams.mlp_hidden_size,
-                         num_layers=hyperparams.num_layers,
+        model = RNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
                          adv_grad_multiplier=hyperparams.adv_grad_multiplier)
     elif cfg.model == "CNNAdv":
-        model = CNNModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
+        model = CNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
                          adv_grad_multiplier=hyperparams.adv_grad_multiplier)
     else:
         raise ValueError("Invalid model type")

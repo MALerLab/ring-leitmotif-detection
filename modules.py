@@ -116,7 +116,7 @@ class RNNModel(torch.nn.Module):
         lstm_out = self.batch_norm(lstm_out)
         lstm_out = lstm_out.transpose(1, 2)
         leitmotif_pred = self.proj(lstm_out).sigmoid()
-        return leitmotif_pred
+        return leitmotif_pred, None, None
     
 
 class CNNModel(torch.nn.Module):
@@ -128,7 +128,7 @@ class CNNModel(torch.nn.Module):
     def forward(self, x):
         cnn_out = self.stack(x)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
-        return leitmotif_pred
+        return leitmotif_pred, None, None
 
 class RNNAdvModel(torch.nn.Module):
     def __init__(self, 
