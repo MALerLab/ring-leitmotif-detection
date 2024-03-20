@@ -46,7 +46,7 @@ class OTFDataset:
         self.transform = CQT1992v2().to(self.device)
 
         print("Loading data...")
-        for fn in tqdm(self.wav_fns, leave=False):
+        for fn in tqdm(self.wav_fns, leave=False, ascii=True):
             version = fn.stem.split("_")[0]
             act = fn.stem.split("_")[1]
 
@@ -88,7 +88,7 @@ class OTFDataset:
         print("Sampling intervals...")
         self.samples = []
         self.none_samples = []
-        for fn in tqdm(self.wav_fns, leave=False):
+        for fn in tqdm(self.wav_fns, leave=False, ascii=True):
             instances = list(pd.read_csv(
                 self.instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
             total_duration = self.wavs[fn.stem].shape[0] // 22050
@@ -266,7 +266,7 @@ class CQTDataset:
             self.audio_path = audio_path
 
         print("Loading data...")
-        for fn in tqdm(self.cqt_fns, leave=False):
+        for fn in tqdm(self.cqt_fns, leave=False, ascii=True):
             version = fn.stem.split("_")[0]
             act = fn.stem.split("_")[1]
             # Load CQT data
@@ -309,7 +309,7 @@ class CQTDataset:
         print("Sampling intervals...")
         self.samples = []
         self.none_samples = []
-        for fn in tqdm(self.cqt_fns, leave=False):
+        for fn in tqdm(self.cqt_fns, leave=False, ascii=True):
             instances = list(pd.read_csv(
                 self.instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
             total_duration = self.cqt[fn.stem].shape[0] * 512 // 22050

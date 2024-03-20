@@ -18,7 +18,7 @@ def infer_rnn(model, cqt):
     model.eval()
     with torch.inference_mode():
         hidden = None
-        for i, x in enumerate(tqdm(cqt, leave=False)):
+        for i, x in enumerate(tqdm(cqt, leave=False, ascii=True)):
             x = x.unsqueeze(0).unsqueeze(0)
             lstm_out, h = model.lstm(x, hidden)
             lstm_out = lstm_out.transpose(1, 2)
@@ -38,7 +38,7 @@ def infer_cnn(model, cqt, duration_samples=6460, overlap=236):
     singing_out = torch.zeros((cqt.shape[0], 1))
     model.eval()
     with torch.inference_mode():
-        for i in tqdm(range(0, cqt.shape[0], increment), leave=False):
+        for i in tqdm(range(0, cqt.shape[0], increment), leave=False, ascii=True):
             x = cqt[i:i+duration_samples, :]
             if x.shape[0] <= overlap//2:
                 break
@@ -111,7 +111,7 @@ def main(config: DictConfig):
     singing_preds = []
     leitmotif_gts = []
     singing_gts = []
-    for fn in tqdm(files):
+    for fn in tqdm(files, ascii=True):
         wav = wavs[fn]
         cqt = dataset.transform(wav.to(DEV)).squeeze(0).T
         if cfg.model == "RNN":
@@ -175,7 +175,7 @@ def main(config: DictConfig):
     best_threshold = [0 for _ in range(21)]
     best_precision = [0 for _ in range(21)]
     best_recall = [0 for _ in range(21)]
-    for threshold in tqdm(thresholds, leave=False):
+    for threshold in tqdm(thresholds, leave=False, ascii=True):
         for i in range(21):
             f1, precision, recall = get_binary_f1(leitmotif_preds[:, i], leitmotif_gts[:, i], threshold)
             if f1 > best_f1[i]:
