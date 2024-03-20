@@ -1,0 +1,24 @@
+Model: RNN
+Checkpoint: checkpoints/RNN/prelim-baseline-longer-epoch31.pt
+Number of files: 22
+=========== Evaluation Results ============
+      Nibelungen | P: 0.617, R: 0.288, F1: 0.393, Threshold: 0.1
+            Ring | P: 0.462, R: 0.130, F1: 0.203, Threshold: 0.1
+  Nibelungenhass | P: 0.687, R: 0.263, F1: 0.380, Threshold: 0.1
+            Mime | P: 0.715, R: 0.274, F1: 0.396, Threshold: 0.1
+            Ritt | P: 0.731, R: 0.415, F1: 0.530, Threshold: 0.4
+       Waldweben | P: 0.763, R: 0.504, F1: 0.607, Threshold: 0.1
+       Waberlohe | P: 0.696, R: 0.271, F1: 0.390, Threshold: 0.1
+            Horn | P: 0.535, R: 0.124, F1: 0.202, Threshold: 0.1
+Geschwisterliebe | P: 0.547, R: 0.204, F1: 0.297, Threshold: 0.1
+         Schwert | P: 0.393, R: 0.090, F1: 0.147, Threshold: 0.1
+     Jugendkraft | P: 0.730, R: 0.167, F1: 0.272, Threshold: 0.1
+       Walhall-b | P: 0.571, R: 0.165, F1: 0.256, Threshold: 0.1
+          Riesen | P: 0.688, R: 0.230, F1: 0.344, Threshold: 0.1
+     Feuerzauber | P: 0.836, R: 0.455, F1: 0.589, Threshold: 0.1
+       Schicksal | P: 0.432, R: 0.073, F1: 0.126, Threshold: 0.1
+          Unmuth | P: 0.665, R: 0.034, F1: 0.065, Threshold: 0.1
+           Liebe | P: 0.723, R: 0.024, F1: 0.046, Threshold: 0.1
+       Siegfried | P: 0.561, R: 0.118, F1: 0.196, Threshold: 0.1
+          Mannen | P: 0.819, R: 0.118, F1: 0.207, Threshold: 0.1
+         Vertrag | P: 0.424, R: 0.057, F1: 0.101, Threshold: 0.1
