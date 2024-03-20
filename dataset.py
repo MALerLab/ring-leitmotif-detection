@@ -22,8 +22,8 @@ class OTFDataset:
             wav_path:Path,
             instances_path: Path,
             singing_ann_path: Path,
-            duration_sec=15,
-            duration_samples=646,
+            duration_sec=10,
+            duration_samples=431,
             mixup_prob = 0.4,
             mixup_alpha = 0.5,
             device = "cuda"
@@ -243,8 +243,8 @@ class CQTDataset:
             cqt_path: Path,
             instances_path: Path,
             singing_ann_path: Path,
-            duration_sec=15,
-            duration_samples=646,
+            duration_sec=10,
+            duration_samples=431,
             audio_path=None
     ):
         self.cqt_fns = sorted(list(cqt_path.glob("*.pkl")))
