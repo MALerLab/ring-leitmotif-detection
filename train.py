@@ -166,7 +166,7 @@ def main(config: DictConfig):
                           mixup_prob = hyperparams.mixup_prob,
                           mixup_alpha = hyperparams.mixup_alpha,
                           device = DEV)
-    train_set, valid_set, test_set = None, None, None
+    train_set, valid_set, = None, None
     if cfg.split == "version":
         train_set = Subset(base_set, base_set.get_subset_idxs(versions=C.TRAIN_VERSIONS))
         valid_set = Subset(base_set, base_set.get_subset_idxs(versions=C.VALID_VERSIONS))
@@ -182,23 +182,19 @@ def main(config: DictConfig):
 
     model = None
     if cfg.model == "RNN":
-        if hyperparams.mlp_hidden_size != 'default':
-            model = RNNModel(hidden_size=hyperparams.hidden_size,
-                             mlp_hidden_size=hyperparams.mlp_hidden_size,
-                             num_layers=hyperparams.num_layers,
-                             adv_grad_multiplier=hyperparams.adv_grad_multiplier)
-        else:
-            model = RNNModel(hidden_size=hyperparams.hidden_size,
-                             num_layers=hyperparams.num_layers,
-                             adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+        model = RNNModel()
     elif cfg.model == "CNN":
-        if hyperparams.mlp_hidden_size != 'default':
-            model = CNNModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
-                             adv_grad_multiplier=hyperparams.adv_grad_multiplier)
-        else:
-            model = CNNModel(adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+        model = CNNModel()
+    elif cfg.model == "RNNAdv":
+        model = RNNModel(hidden_size=hyperparams.hidden_size,
+                         mlp_hidden_size=hyperparams.mlp_hidden_size,
+                         num_layers=hyperparams.num_layers,
+                         adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+    elif cfg.model == "CNNAdv":
+        model = CNNModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
+                         adv_grad_multiplier=hyperparams.adv_grad_multiplier)
     else:
-        raise ValueError("Invalid model name")
+        raise ValueError("Invalid model type")
     
     mlp_params = [param for name, param in model.named_parameters() if 'mlp' in name]
     backbone_params = [param for name, param in model.named_parameters() if 'mlp' not in name]

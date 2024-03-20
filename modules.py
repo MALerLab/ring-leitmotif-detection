@@ -134,11 +134,13 @@ class RNNAdvModel(torch.nn.Module):
     def __init__(self, 
                  input_size=84, 
                  hidden_size=128,
-                 mlp_hidden_size=128,
+                 mlp_hidden_size='default',
                  num_layers=3, 
                  num_versions=16,
                  adv_grad_multiplier=0.01):
         super().__init__()
+        if mlp_hidden_size == 'default':
+            mlp_hidden_size = 64
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
         self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
         self.proj = nn.Linear(hidden_size * 2, 21)
@@ -180,8 +182,10 @@ class CNNAdvModel(torch.nn.Module):
     def __init__(self,
                  num_versions=16,
                  adv_grad_multiplier=0.01,
-                 mlp_hidden_size=64):
+                 mlp_hidden_size='default'):
         super().__init__()
+        if mlp_hidden_size == 'default':
+            mlp_hidden_size = 64
         self.stack = ConvStack()
         self.proj = nn.Linear(64, 21)
         self.singing_mlp = nn.Sequential(
