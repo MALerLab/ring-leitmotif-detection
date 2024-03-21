@@ -22,10 +22,10 @@ class OTFDataset:
             wav_path:Path,
             instances_path: Path,
             singing_ann_path: Path,
-            duration_sec=10,
-            duration_samples=431,
-            mixup_prob = 0.4,
-            mixup_alpha = 0.5,
+            duration_sec=15,
+            duration_samples=646,
+            mixup_prob = 0,
+            mixup_alpha = 0,
             device = "cuda"
     ):
         self.wav_fns = sorted(list(wav_path.glob("*.pt")))
@@ -225,6 +225,7 @@ class OTFDataset:
                 wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
 
             cqt = self.transform(wav.to(self.device)).squeeze(0)
+            cqt = (cqt / cqt.max()).T
             version_gt = torch.full((end - start, 1), version2idx[version])
             return cqt.T, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
         else:
@@ -234,6 +235,7 @@ class OTFDataset:
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
             cqt = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device)).squeeze(0)
+            cqt = (cqt / cqt.max()).T
             version_gt = torch.full((end - start, 1), version2idx[version])
             return cqt.T, torch.zeros((end - start, 21)), self.singing_gts[fn][start:end, :], version_gt
 
