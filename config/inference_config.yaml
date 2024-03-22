@@ -4,10 +4,3 @@ cfg:
   discretization: 16
   random_seed: 1204
   load_checkpoint: null
-  
-hyperparams:
-  hidden_size: 128
-  num_layers: 3
-  batch_size: 32
-  lr: 0.002
-  num_epochs: 10
