@@ -227,7 +227,7 @@ class OTFDataset:
             cqt = self.transform(wav.to(self.device)).squeeze(0)
             cqt = (cqt / cqt.max()).T
             version_gt = torch.full((end - start, 1), version2idx[version])
-            return cqt.T, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
+            return cqt, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
         else:
             idx -= len(self.samples)
             version, act, start, end = self.none_samples[idx]
@@ -237,7 +237,7 @@ class OTFDataset:
             cqt = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device)).squeeze(0)
             cqt = (cqt / cqt.max()).T
             version_gt = torch.full((end - start, 1), version2idx[version])
-            return cqt.T, torch.zeros((end - start, 21)), self.singing_gts[fn][start:end, :], version_gt
+            return cqt, torch.zeros((end - start, 21)), self.singing_gts[fn][start:end, :], version_gt
 
 class CQTDataset:
     def __init__(
