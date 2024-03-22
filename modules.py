@@ -30,6 +30,52 @@ class DilatedMaxPool1d(nn.Module):
         padded_x[:, :, self.dilation:-self.dilation] = x
         return self.maxpool(padded_x)
     
+class ConvStack(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.stack1 = nn.Sequential(
+            nn.Conv2d(1, 128, (3, 3), (1, 1), "same", (1, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (1, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(64),
+            DilatedMaxPool2d((3, 3), (1, 3), (1, 1)),
+            nn.Conv2d(64, 128, (3, 3), (1, 1), "same", (3, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (3, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(64),
+            DilatedMaxPool2d((3, 3), (1, 3), (3, 1)),
+            nn.Conv2d(64, 128, (3, 3), (1, 1), "same", (9, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (9, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(64),
+            DilatedMaxPool2d((3, 3), (1, 3), (9, 1)),
+            nn.Conv2d(64, 64, (1, 4), (1, 1), 0, (1, 1)),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm2d(64),
+        )
+        self.stack2 = nn.Sequential(
+            nn.Conv1d(64, 128, 3, 1, "same", 27),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm1d(128),
+            nn.Conv1d(128, 64, 3, 1, "same", 27),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm1d(64),
+            DilatedMaxPool1d(3, 1, 27)
+        )
+    
+    def forward(self, x):
+        x = x.unsqueeze(1)
+        x = self.stack1(x)
+        x = x.squeeze(3)
+        x = self.stack2(x)
+        return x.transpose(1, 2)
+
 # Gradient reversal layer from: https://github.com/tadeephuy/GradientReversal
 class GradientReversal(Function):
     @staticmethod
@@ -58,11 +104,63 @@ class RNNModel(torch.nn.Module):
     def __init__(self, 
                  input_size=84, 
                  hidden_size=128,
-                 mlp_hidden_size=128,
+                 num_layers=3):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
+        self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
+        self.proj = nn.Linear(hidden_size * 2, 21)
+    
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        lstm_out = lstm_out.transpose(1, 2)
+        lstm_out = self.batch_norm(lstm_out)
+        lstm_out = lstm_out.transpose(1, 2)
+        leitmotif_pred = self.proj(lstm_out).sigmoid()
+        return leitmotif_pred, None, None
+    
+
+class CNNModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.stack = ConvStack()
+        self.proj = nn.Linear(64, 21)
+
+    def forward(self, x):
+        cnn_out = self.stack(x)
+        leitmotif_pred = self.proj(cnn_out).sigmoid()
+        return leitmotif_pred, None, None
+    
+class CRNNModel(torch.nn.Module):
+    def __init__(self, 
+                 input_size=84, 
+                 hidden_size=128,
+                 num_layers=3):
+        super().__init__()
+        self.stack = ConvStack()
+        self.lstm = nn.LSTM(64, hidden_size, batch_first=True, num_layers=num_layers)
+        self.batch_norm = nn.BatchNorm1d(hidden_size)
+        self.proj = nn.Linear(hidden_size, 21)
+    
+    def forward(self, x):
+        cnn_out = self.stack(x)
+        lstm_out, _ = self.lstm(cnn_out)
+        lstm_out = lstm_out.transpose(1, 2)
+        lstm_out = self.batch_norm(lstm_out)
+        lstm_out = lstm_out.transpose(1, 2)
+        leitmotif_pred = self.proj(lstm_out).sigmoid()
+        return leitmotif_pred, None, None
+
+class RNNAdvModel(torch.nn.Module):
+    def __init__(self, 
+                 input_size=84, 
+                 hidden_size=128,
+                 mlp_hidden_size='default',
                  num_layers=3, 
                  num_versions=16,
                  adv_grad_multiplier=0.01):
         super().__init__()
+        if mlp_hidden_size == 'default':
+            mlp_hidden_size = 64
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
         self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
         self.proj = nn.Linear(hidden_size * 2, 21)
@@ -100,47 +198,15 @@ class RNNModel(torch.nn.Module):
         version_pred = self.version_mlp(lstm_out)
         return leitmotif_pred, singing_pred, version_pred
     
-class CNNModel(torch.nn.Module):
+class CNNAdvModel(torch.nn.Module):
     def __init__(self,
                  num_versions=16,
                  adv_grad_multiplier=0.01,
-                 mlp_hidden_size=64):
+                 mlp_hidden_size='default'):
         super().__init__()
-        self.stack1 = nn.Sequential(
-            nn.Conv2d(1, 128, (3, 3), (1, 1), "same", (1, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(128),
-            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (1, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
-            DilatedMaxPool2d((3, 3), (1, 3), (1, 1)),
-            nn.Conv2d(64, 128, (3, 3), (1, 1), "same", (3, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(128),
-            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (3, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
-            DilatedMaxPool2d((3, 3), (1, 3), (3, 1)),
-            nn.Conv2d(64, 128, (3, 3), (1, 1), "same", (9, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(128),
-            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (9, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
-            DilatedMaxPool2d((3, 3), (1, 3), (9, 1)),
-            nn.Conv2d(64, 64, (1, 4), (1, 1), 0, (1, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
-        )
-        self.stack2 = nn.Sequential(
-            nn.Conv1d(64, 128, 3, 1, "same", 27),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm1d(128),
-            nn.Conv1d(128, 64, 3, 1, "same", 27),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm1d(64),
-            DilatedMaxPool1d(3, 1, 27)
-        )
+        if mlp_hidden_size == 'default':
+            mlp_hidden_size = 64
+        self.stack = ConvStack()
         self.proj = nn.Linear(64, 21)
         self.singing_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
@@ -157,19 +223,15 @@ class CNNModel(torch.nn.Module):
         )
     
     def freeze_backbone(self):
-        self.stack1.requires_grad_(False)
-        self.stack2.requires_grad_(False)
+        self.convstack.stack1.requires_grad_(False)
+        self.convstack.stack2.requires_grad_(False)
 
     def unfreeze_backbone(self):
-        self.stack1.requires_grad_(True)
-        self.stack2.requires_grad_(True)
+        self.convstack.stack1.requires_grad_(True)
+        self.convstack.stack2.requires_grad_(True)
     
     def forward(self, x):
-        x = x.unsqueeze(1)
-        x = self.stack1(x)
-        x = x.squeeze(3)
-        x = self.stack2(x)
-        cnn_out = x.transpose(1, 2)
+        cnn_out = self.stack(x)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
         singing_pred = self.singing_mlp(cnn_out)
         version_pred = self.version_mlp(cnn_out)

@@ -1,5 +1,7 @@
 data/WagnerRing_Public/
 data/CQT/
+data/wav-22050/
+tests/extracts/
 checkpoints/
 __pycache__/
 .vscode/

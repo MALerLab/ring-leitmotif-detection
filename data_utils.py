@@ -17,7 +17,7 @@ def sample_instance_intervals(instances, duration, total_duration):
         if instance_duration < duration:
             context = duration - instance_duration
             room_before = start
-            room_after = total_duration - end
+            room_after = total_duration - end - 0.02
             if room_before < context:
                 context_before = min(room_before, context)
                 context_after = context - context_before
