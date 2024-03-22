@@ -2,15 +2,13 @@ from pathlib import Path
 import datetime
 import torch
 import pandas as pd
-from nnAudio.features.cqt import CQT1992v2
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from tqdm.auto import tqdm
-from dataset import OTFDataset, Subset, collate_fn
+from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
 from modules import RNNModel, CNNModel
 import constants as C
-# TODO: add version prediction
 
 def infer_rnn(model, cqt):
     leitmotif_out, _, _ = model(cqt.unsqueeze(0))

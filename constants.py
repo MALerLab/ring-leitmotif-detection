@@ -1,6 +1,5 @@
 # Dataset split
 TRAIN_VERSIONS = ['Bo', 'Bh', 'Fu', 'Ja', 'Ke', 'Kr', 'Le', 'Ne', 'Sw', 'Th']
-# VALID_VERSIONS = ['Ja', 'Fu']
 VALID_VERSIONS = ['Ka', 'Sw']
 TEST_VERSIONS = ['We']
 
