@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules import RNNModel, CNNModel, RNNAdvModel, CNNAdvModel
+from modules import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
 from data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
 
@@ -199,6 +199,8 @@ def main(config: DictConfig):
         model = RNNModel()
     elif cfg.model == "CNN":
         model = CNNModel()
+    elif cfg.model == "CRNN":
+        model = CRNNModel()
     elif cfg.model == "RNNAdv":
         model = RNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
                          adv_grad_multiplier=hyperparams.adv_grad_multiplier)

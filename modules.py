@@ -129,6 +129,26 @@ class CNNModel(torch.nn.Module):
         cnn_out = self.stack(x)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
         return leitmotif_pred, None, None
+    
+class CRNNModel(torch.nn.Module):
+    def __init__(self, 
+                 input_size=84, 
+                 hidden_size=128,
+                 num_layers=3):
+        super().__init__()
+        self.stack = ConvStack()
+        self.lstm = nn.LSTM(64, hidden_size, batch_first=True, num_layers=num_layers)
+        self.batch_norm = nn.BatchNorm1d(hidden_size)
+        self.proj = nn.Linear(hidden_size, 21)
+    
+    def forward(self, x):
+        cnn_out = self.stack(x)
+        lstm_out, _ = self.lstm(cnn_out)
+        lstm_out = lstm_out.transpose(1, 2)
+        lstm_out = self.batch_norm(lstm_out)
+        lstm_out = lstm_out.transpose(1, 2)
+        leitmotif_pred = self.proj(lstm_out).sigmoid()
+        return leitmotif_pred, None, None
 
 class RNNAdvModel(torch.nn.Module):
     def __init__(self, 
