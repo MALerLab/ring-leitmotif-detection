@@ -4,3 +4,6 @@ cfg:
   discretization: 16
   random_seed: 1204
   load_checkpoint: null
+
+hyperparams:
+  include_none_class: false

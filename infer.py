@@ -2,23 +2,21 @@ from pathlib import Path
 import datetime
 import torch
 import pandas as pd
-from nnAudio.features.cqt import CQT1992v2
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from tqdm.auto import tqdm
-from dataset import OTFDataset, Subset, collate_fn
+from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
 from modules import RNNModel, CNNModel
 import constants as C
-# TODO: add version prediction
 
 def infer_rnn(model, cqt):
     leitmotif_out, _, _ = model(cqt.unsqueeze(0))
     return leitmotif_out.squeeze(0)
 
-def infer_cnn(model, cqt, duration_samples=6460, overlap=236):
+def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
     increment = duration_samples - overlap
-    leitmotif_out = torch.zeros((cqt.shape[0], 21))
+    leitmotif_out = torch.zeros((cqt.shape[0], num_classes))
     for i in tqdm(range(0, cqt.shape[0], increment), leave=False, ascii=True):
         x = cqt[i:i+duration_samples, :]
         if x.shape[0] <= overlap//2:
@@ -53,13 +51,16 @@ def medfilt(x, k=21):
 @hydra.main(config_path="config", config_name="inference_config", version_base=None)
 def main(config: DictConfig):
     cfg = config.cfg
+    hyperparams = config.hyperparams
     DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
     dataset = OTFDataset(Path("data/wav-22050"),
                          Path("data/LeitmotifOccurrencesInstances/Instances"),
                          Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
+                         include_none_class=hyperparams.include_none_class,
                          mixup_prob=0,
-                         mixup_alpha=0)
+                         mixup_alpha=0,
+                         device=DEV)
 
     files = []
     wavs = {}
@@ -75,9 +76,9 @@ def main(config: DictConfig):
 
     model = None
     if cfg.model == "RNN":
-        model = RNNModel()
+        model = RNNModel(num_classes=dataset.num_classes)
     elif cfg.model == "CNN":
-        model = CNNModel()
+        model = CNNModel(num_classes=dataset.num_classes)
     else:
         raise ValueError("Invalid model name")
     model.load_state_dict(torch.load(cfg.load_checkpoint)["model"])
@@ -95,7 +96,7 @@ def main(config: DictConfig):
             if cfg.model == "RNN":
                 leitmotif_pred = infer_rnn(model, cqt)
             elif cfg.model == "CNN":
-                leitmotif_pred = infer_cnn(model, cqt)
+                leitmotif_pred = infer_cnn(model, cqt, num_classes=dataset.num_classes)
 
             # Apply median filter
             for i in range(leitmotif_pred.shape[1]):
@@ -150,18 +151,25 @@ def main(config: DictConfig):
     print("Performing threshold grid search...")
     # Threshold grid search
     thresholds = [x * 0.001 for x in range(1, 1000, 1)]
-    best_f1 = [0 for _ in range(21)]
-    best_threshold = [0 for _ in range(21)]
-    best_precision = [0 for _ in range(21)]
-    best_recall = [0 for _ in range(21)]
+    best_f1 = [0 for _ in range(dataset.num_classes + 1)]
+    best_threshold = [0 for _ in range(dataset.num_classes + 1)]
+    best_precision = [0 for _ in range(dataset.num_classes + 1)]
+    best_recall = [0 for _ in range(dataset.num_classes + 1)]
     for threshold in tqdm(thresholds, leave=False, ascii=True):
-        for i in range(21):
+        for i in range(dataset.num_classes):
             f1, precision, recall = get_binary_f1(leitmotif_preds[:, i], leitmotif_gts[:, i], threshold)
             if f1 > best_f1[i]:
                 best_f1[i] = f1
                 best_threshold[i] = threshold
                 best_precision[i] = precision
                 best_recall[i] = recall
+        # Get matrix mean
+        f1, precision, recall = get_binary_f1(leitmotif_preds, leitmotif_gts, threshold)
+        if f1 > best_f1[-1]:
+            best_f1[-1] = f1
+            best_threshold[-1] = threshold
+            best_precision[-1] = precision
+            best_recall[-1] = recall
 
     now = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     print(f"=========== Evaluation Results ============")
@@ -170,9 +178,10 @@ def main(config: DictConfig):
         f.write(f"Checkpoint: {cfg.load_checkpoint}\n")
         f.write(f"Number of files: {len(files)}\n")
         f.write(f"=========== Evaluation Results ============\n")
-        for i in range(20):
+        for i in range(dataset.num_classes if hyperparams.include_none_class else dataset.num_classes-1):
             f.write(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]:.3f}\n")
             print(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]:.3f}")
+        f.write(f"{'Matrix Mean':>{16}} | P: {best_precision[-1]:.3f}, R: {best_recall[-1]:.3f}, F1: {best_f1[-1]:.3f}, Threshold: {best_threshold[-1]:.3f}\n")
 
 if __name__ == "__main__":
     main()

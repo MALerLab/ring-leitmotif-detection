@@ -96,24 +96,26 @@ idx2motif = [
     'Nibelungen',
     'Ring',
     'Nibelungenhass',
-    'Mime',
+    # 'Mime',
     'Ritt',
     'Waldweben',
     'Waberlohe',
     'Horn',
-    'Geschwisterliebe',
+    # 'Geschwisterliebe',
     'Schwert',
-    'Jugendkraft',
+    # 'Jugendkraft',
     'Walhall-b',
-    'Riesen',
+    # 'Riesen',
     'Feuerzauber',
-    'Schicksal',
+    # 'Schicksal',
     'Unmuth',
-    'Liebe',
+    # 'Liebe',
     'Siegfried',
-    'Mannen',
+    # 'Mannen',
     'Vertrag'
 ]
+
+motif2idx = {x: i for i, x in enumerate(idx2motif)}
 
 motif2id = {
     'Nibelungen': 'L-Ni',
@@ -137,8 +139,6 @@ motif2id = {
     'Mannen': 'L-Ma',
     'Vertrag': 'L-Ve'
 }
-
-motif2idx = {x: i for i, x in enumerate(idx2motif)}
 
 id2version = {
     'Ba': 'Barenboim1991',

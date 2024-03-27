@@ -177,6 +177,8 @@ def main(config: DictConfig):
     base_set = OTFDataset(Path("data/wav-22050"), 
                           Path("data/LeitmotifOccurrencesInstances/Instances"),
                           Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
+                          include_none_class = hyperparams.include_none_class,
+                          split = cfg.split,
                           mixup_prob = hyperparams.mixup_prob,
                           mixup_alpha = hyperparams.mixup_alpha,
                           device = DEV)
@@ -191,22 +193,24 @@ def main(config: DictConfig):
         raise ValueError("Invalid split method")
 
     rng = torch.Generator().manual_seed(cfg.random_seed)
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=32, shuffle=True, generator=rng, collate_fn = collate_fn)
-    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=32, shuffle=False, collate_fn = collate_fn)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=32, shuffle=True, generator=rng, collate_fn=collate_fn, num_workers=4)
+    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=32, shuffle=False, collate_fn = collate_fn, num_workers=4)
 
     model = None
     if cfg.model == "RNN":
-        model = RNNModel()
+        model = RNNModel(num_classes=base_set.num_classes)
     elif cfg.model == "CNN":
-        model = CNNModel()
+        model = CNNModel(num_classes=base_set.num_classes)
     elif cfg.model == "CRNN":
-        model = CRNNModel()
+        model = CRNNModel(num_classes=base_set.num_classes)
     elif cfg.model == "RNNAdv":
         model = RNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
-                         adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+                         adv_grad_multiplier=hyperparams.adv_grad_multiplier,
+                         num_classes=base_set.num_classes)
     elif cfg.model == "CNNAdv":
         model = CNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
-                         adv_grad_multiplier=hyperparams.adv_grad_multiplier)
+                         adv_grad_multiplier=hyperparams.adv_grad_multiplier,
+                         num_classes=base_set.num_classes)
     else:
         raise ValueError("Invalid model type")
     
@@ -222,7 +226,3 @@ def main(config: DictConfig):
 
 if __name__ == "__main__":
     main()
-
-
-
-
