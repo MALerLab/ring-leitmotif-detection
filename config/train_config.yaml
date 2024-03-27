@@ -12,6 +12,7 @@ cfg:
   load_checkpoint: null
 
 hyperparams:
+  include_none_class: false
   batch_size: 32
   lr: 0.002
   adv_lr_multiplier: 10
