@@ -104,11 +104,12 @@ class RNNModel(torch.nn.Module):
     def __init__(self, 
                  input_size=84, 
                  hidden_size=128,
-                 num_layers=3):
+                 num_layers=3,
+                 num_classes=21):
         super().__init__()
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
         self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
-        self.proj = nn.Linear(hidden_size * 2, 21)
+        self.proj = nn.Linear(hidden_size * 2, num_classes)
     
     def forward(self, x):
         lstm_out, _ = self.lstm(x)
@@ -120,10 +121,10 @@ class RNNModel(torch.nn.Module):
     
 
 class CNNModel(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes=21):
         super().__init__()
         self.stack = ConvStack()
-        self.proj = nn.Linear(64, 21)
+        self.proj = nn.Linear(64, num_classes)
 
     def forward(self, x):
         cnn_out = self.stack(x)
@@ -134,12 +135,13 @@ class CRNNModel(torch.nn.Module):
     def __init__(self, 
                  input_size=84, 
                  hidden_size=128,
-                 num_layers=3):
+                 num_layers=3,
+                 num_classes=21):
         super().__init__()
         self.stack = ConvStack()
         self.lstm = nn.LSTM(64, hidden_size, batch_first=True, num_layers=num_layers)
         self.batch_norm = nn.BatchNorm1d(hidden_size)
-        self.proj = nn.Linear(hidden_size, 21)
+        self.proj = nn.Linear(hidden_size, num_classes)
     
     def forward(self, x):
         cnn_out = self.stack(x)
@@ -157,13 +159,14 @@ class RNNAdvModel(torch.nn.Module):
                  mlp_hidden_size='default',
                  num_layers=3, 
                  num_versions=16,
-                 adv_grad_multiplier=0.01):
+                 adv_grad_multiplier=0.01,
+                 num_classes=21):
         super().__init__()
         if mlp_hidden_size == 'default':
             mlp_hidden_size = 64
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
         self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
-        self.proj = nn.Linear(hidden_size * 2, 21)
+        self.proj = nn.Linear(hidden_size * 2, num_classes)
         self.singing_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
             nn.Linear(hidden_size * 2, mlp_hidden_size),
@@ -202,12 +205,13 @@ class CNNAdvModel(torch.nn.Module):
     def __init__(self,
                  num_versions=16,
                  adv_grad_multiplier=0.01,
-                 mlp_hidden_size='default'):
+                 mlp_hidden_size='default',
+                 num_classes=21):
         super().__init__()
         if mlp_hidden_size == 'default':
             mlp_hidden_size = 64
         self.stack = ConvStack()
-        self.proj = nn.Linear(64, 21)
+        self.proj = nn.Linear(64, num_classes)
         self.singing_mlp = nn.Sequential(
             GradientReversal(alpha=adv_grad_multiplier),
             nn.Linear(64, mlp_hidden_size),
