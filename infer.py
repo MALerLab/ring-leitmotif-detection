@@ -175,6 +175,7 @@ def main(config: DictConfig):
     print(f"=========== Evaluation Results ============")
     with open(f"inference-log-{now}.txt", "w") as f:
         f.write(f"Model: {cfg.model}\n")
+        f.write(f"Split: {cfg.split}\n")
         f.write(f"Checkpoint: {cfg.load_checkpoint}\n")
         f.write(f"Number of files: {len(files)}\n")
         f.write(f"=========== Evaluation Results ============\n")
@@ -182,6 +183,7 @@ def main(config: DictConfig):
             f.write(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]:.3f}\n")
             print(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]:.3f}")
         f.write(f"{'Matrix Mean':>{16}} | P: {best_precision[-1]:.3f}, R: {best_recall[-1]:.3f}, F1: {best_f1[-1]:.3f}, Threshold: {best_threshold[-1]:.3f}\n")
+        print(f"{'Matrix Mean':>{16}} | P: {best_precision[-1]:.3f}, R: {best_recall[-1]:.3f}, F1: {best_f1[-1]:.3f}, Threshold: {best_threshold[-1]:.3f}\n")
 
 if __name__ == "__main__":
     main()
