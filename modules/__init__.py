@@ -1,1 +1,1 @@
-from baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
+from .baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
