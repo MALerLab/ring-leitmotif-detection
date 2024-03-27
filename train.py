@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
+from modules.baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
 from data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
 

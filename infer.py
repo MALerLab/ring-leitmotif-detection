@@ -7,7 +7,7 @@ from omegaconf import DictConfig
 from tqdm.auto import tqdm
 from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
-from modules import RNNModel, CNNModel
+from modules.baselines import RNNModel, CNNModel
 import constants as C
 
 def infer_rnn(model, cqt):
