@@ -1,11 +1,8 @@
 from pathlib import Path
-import pickle
 import math
 import random
 import pandas as pd
 import torch
-import torchaudio
-from nnAudio.features.cqt import CQT1992v2
 from tqdm.auto import tqdm
 from data_utils import (
     sample_instance_intervals,
@@ -52,7 +49,6 @@ class OTFDataset:
         self.singing_gts = {}
         self.samples = []
         self.none_samples = []
-        self.transform = CQT1992v2().to(self.device)
         self.num_classes = len(idx2motif) + 1 if include_none_class else len(idx2motif)
 
         print("Loading data...")
@@ -240,7 +236,6 @@ class OTFDataset:
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
             wav = self.wavs[fn][start_samp:end_samp]
-
             if random.random() < self.cur_mixup_prob:
                 mixup_idx = 0
                 if self.split == "version":
@@ -250,20 +245,17 @@ class OTFDataset:
                 v, a, s, _ = self.none_samples[mixup_idx]
                 mixup_wav = self.wavs[f"{v}_{a}"][s * 512:s * 512 + (self.duration_sec * 22050)]
                 wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
-            cqt = self.transform(wav.to(self.device)).squeeze(0)
-            cqt = (cqt / cqt.max()).T
             version_gt = torch.full((end - start, 1), version2idx[version])
-            return cqt, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
+            return wav, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
         else:
             idx -= len(self.samples)
             version, act, start, end = self.none_samples[idx]
             fn = f"{version}_{act}"
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
-            cqt = self.transform(self.wavs[fn][start_samp:end_samp].to(self.device)).squeeze(0)
-            cqt = (cqt / cqt.max()).T
+            wav = self.wavs[fn][start_samp:end_samp]
             version_gt = torch.full((end - start, 1), version2idx[version])
-            return cqt, torch.zeros((end - start, self.num_classes)), self.singing_gts[fn][start:end, :], version_gt
+            return wav, torch.zeros((end - start, self.num_classes)), self.singing_gts[fn][start:end, :], version_gt
         
 class Subset:
     def __init__(self, dataset, indices):
@@ -278,9 +270,9 @@ class Subset:
 
 
 def collate_fn(batch):
-    cqt, leitmotif_gt, singing_gt, version_gt = zip(*batch)
-    cqt = torch.stack(cqt)
+    wav, leitmotif_gt, singing_gt, version_gt = zip(*batch)
+    wav = torch.stack(wav)
     leitmotif_gt = torch.stack(leitmotif_gt)
     singing_gt = torch.stack(singing_gt)
     version_gt = torch.stack(version_gt)[..., 0]
-    return cqt, leitmotif_gt, singing_gt, version_gt
+    return wav, leitmotif_gt, singing_gt, version_gt

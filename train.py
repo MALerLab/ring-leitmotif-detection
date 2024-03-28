@@ -6,8 +6,8 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
-from data_utils import get_binary_f1, get_multiclass_acc
+from modules.baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
+from data_utils import get_binary_f1, get_tp_fp_fn, get_multiclass_acc
 import constants as C
 
 class Trainer:
@@ -84,12 +84,12 @@ class Trainer:
             self.dataset.enable_mixup()
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
                 # Leitmotif train loop
-                cqt, leitmotif_gt, singing_gt, version_gt = batch
-                cqt = cqt.to(self.device)
+                wav, leitmotif_gt, singing_gt, version_gt = batch
+                wav = wav.to(self.device)
                 leitmotif_gt = leitmotif_gt.to(self.device)
                 singing_gt = singing_gt.to(self.device)
                 version_gt = version_gt.to(self.device)
-                leitmotif_pred, singing_pred, version_pred = self.model(cqt)
+                leitmotif_pred, singing_pred, version_pred = self.model(wav)
                 leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                 loss = leitmotif_loss
 
@@ -130,35 +130,32 @@ class Trainer:
             self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
-                total_precision = 0
-                total_recall = 0
-                total_f1 = 0
+                total_tp, total_fp, total_fn = 0, 0, 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
-                    cqt, leitmotif_gt, singing_gt, version_gt = batch
-                    cqt = cqt.to(self.device)
+                    wav, leitmotif_gt, singing_gt, version_gt = batch
+                    wav = wav.to(self.device)
                     leitmotif_gt = leitmotif_gt.to(self.device)
                     singing_gt = singing_gt.to(self.device)
-                    leitmotif_pred, singing_pred, version_pred = self.model(cqt)
+                    version_gt = version_gt.to(self.device)
+                    leitmotif_pred, singing_pred, version_pred = self.model(wav)
                     leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                     total_loss += leitmotif_loss.item()
-
                     if self.cfg.log_to_wandb:
-                        f1, precision, recall = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
-                        total_precision += precision
-                        total_recall += recall
-                        total_f1 += f1
-                
-                avg_f1 = total_f1 / len(self.valid_loader)
+                        tp, fp, fn = get_tp_fp_fn(leitmotif_pred, leitmotif_gt, 0.5)
+                        total_tp += tp
+                        total_fp += fp
+                        total_fn += fn
                     
                 if self.cfg.log_to_wandb:
                     avg_loss = total_loss / len(self.valid_loader)
-                    avg_precision = total_precision / len(self.valid_loader)
-                    avg_recall = total_recall / len(self.valid_loader)
-                    wandb.log({"valid/loss": avg_loss, "valid/precision": avg_precision, "valid/recall": avg_recall, "valid/f1": avg_f1})
+                    p = tp / (tp + fp)
+                    r = tp / (tp + fn)
+                    f1 = 2 * p * r / (p + r)
+                    wandb.log({"valid/loss": avg_loss, "valid/precision": p, "valid/recall": r, "valid/f1": f1})
 
-                if avg_f1 > best_valid_f1:
-                    best_valid_f1 = avg_f1
-                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_epoch{self.cur_epoch}_{avg_f1}.pt"
+                if f1 > best_valid_f1:
+                    best_valid_f1 = f1
+                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_epoch{self.cur_epoch}_{f1}.pt"
                     if last_ckpt_path is not None:
                         last_ckpt_path.unlink(missing_ok=True)
                     last_ckpt_path = ckpt_path
@@ -193,8 +190,21 @@ def main(config: DictConfig):
         raise ValueError("Invalid split method")
 
     rng = torch.Generator().manual_seed(cfg.random_seed)
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=32, shuffle=True, generator=rng, collate_fn=collate_fn, num_workers=4)
-    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=32, shuffle=False, collate_fn = collate_fn, num_workers=4)
+    train_loader = torch.utils.data.DataLoader(train_set, 
+                                               batch_size=32, 
+                                               shuffle=True, 
+                                               generator=rng, 
+                                               collate_fn=collate_fn, 
+                                               num_workers=4,
+                                               pin_memory=True,
+                                               pin_memory_device=DEV)
+    valid_loader = torch.utils.data.DataLoader(valid_set, 
+                                               batch_size=32, 
+                                               shuffle=False, 
+                                               collate_fn = collate_fn,
+                                               num_workers=4,
+                                               pin_memory=True,
+                                               pin_memory_device=DEV)
 
     model = None
     if cfg.model == "RNN":

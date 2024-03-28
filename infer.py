@@ -2,12 +2,13 @@ from pathlib import Path
 import datetime
 import torch
 import pandas as pd
+from nnAudio.features.cqt import CQT1992v2
 import hydra
 from omegaconf import DictConfig
 from tqdm.auto import tqdm
 from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
-from modules import RNNModel, CNNModel
+from modules.baselines import RNNModel, CNNModel
 import constants as C
 
 def infer_rnn(model, cqt):
@@ -22,7 +23,8 @@ def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
         if x.shape[0] <= overlap//2:
             break
         x = x.unsqueeze(0)
-        leitmotif_pred, _, _ = model(x)
+        cnn_out = model.stack(x)
+        leitmotif_pred = model.proj(cnn_out).sigmoid()
 
         # target and source slice positions
         t_start = i + (overlap//2)
@@ -73,6 +75,7 @@ def main(config: DictConfig):
         wavs = {k: v for k, v in dataset.wavs.items() if k.split("_")[1] in C.VALID_ACTS}
         instances_gts = {k: v for k, v in dataset.instances_gts.items() if k.split("_")[1] in C.VALID_ACTS}
         files = [k for k in wavs.keys()]
+    transform = CQT1992v2().to(DEV)
 
     model = None
     if cfg.model == "RNN":
@@ -81,7 +84,7 @@ def main(config: DictConfig):
         model = CNNModel(num_classes=dataset.num_classes)
     else:
         raise ValueError("Invalid model name")
-    model.load_state_dict(torch.load(cfg.load_checkpoint)["model"])
+    model.load_state_dict(torch.load(cfg.load_checkpoint)["model"], strict=False)
     model.to(DEV)
     model.eval()
 
@@ -91,7 +94,7 @@ def main(config: DictConfig):
     with torch.inference_mode():
         for fn in tqdm(files, ascii=True):
             wav = wavs[fn]
-            cqt = dataset.transform(wav.to(DEV)).squeeze(0)
+            cqt = transform(wav.to(DEV)).squeeze(0)
             cqt = (cqt / cqt.max()).T
             if cfg.model == "RNN":
                 leitmotif_pred = infer_rnn(model, cqt)
@@ -175,6 +178,7 @@ def main(config: DictConfig):
     print(f"=========== Evaluation Results ============")
     with open(f"inference-log-{now}.txt", "w") as f:
         f.write(f"Model: {cfg.model}\n")
+        f.write(f"Split: {cfg.split}\n")
         f.write(f"Checkpoint: {cfg.load_checkpoint}\n")
         f.write(f"Number of files: {len(files)}\n")
         f.write(f"=========== Evaluation Results ============\n")
@@ -182,6 +186,7 @@ def main(config: DictConfig):
             f.write(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]:.3f}\n")
             print(f"{idx2motif[i]:>{16}} | P: {best_precision[i]:.3f}, R: {best_recall[i]:.3f}, F1: {best_f1[i]:.3f}, Threshold: {best_threshold[i]:.3f}")
         f.write(f"{'Matrix Mean':>{16}} | P: {best_precision[-1]:.3f}, R: {best_recall[-1]:.3f}, F1: {best_f1[-1]:.3f}, Threshold: {best_threshold[-1]:.3f}\n")
+        print(f"{'Matrix Mean':>{16}} | P: {best_precision[-1]:.3f}, R: {best_recall[-1]:.3f}, F1: {best_f1[-1]:.3f}, Threshold: {best_threshold[-1]:.3f}\n")
 
 if __name__ == "__main__":
     main()

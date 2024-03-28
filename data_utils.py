@@ -83,6 +83,18 @@ def get_binary_f1(pred, gt, threshold):
     f1 = 2 * precision * recall / (precision + recall)
     return f1, precision, recall
 
+def get_tp_fp_fn(pred, gt, threshold):
+    """
+    Returns (f1, precision, recall) for binary classification.\n
+    pred and gt must have the same shape.\n
+    """
+    tp = ((pred > threshold) & (gt == 1)).sum().item()
+    if tp == 0:
+        tp = 0.0001
+    fp = ((pred > threshold) & (gt == 0)).sum().item()
+    fn = ((pred <= threshold) & (gt == 1)).sum().item()
+    return tp, fp, fn
+
 def get_multiclass_acc(pred, gt):
     """
     Returns accuracy for multiclass classification.\n
