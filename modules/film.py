@@ -125,7 +125,7 @@ class FiLMModel(torch.nn.Module):
     def forward(self, x, labels):
         cnn_out = self.cnn_forward(x, labels)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
-        return leitmotif_pred, None, None
+        return leitmotif_pred
 
 
 class FiLMAttnModel(FiLMModel):
@@ -147,4 +147,4 @@ class FiLMAttnModel(FiLMModel):
 
         out = self.encoder(cat_emb)
         leitmotif_pred = self.proj(out).sigmoid()
-        return leitmotif_pred, None, None
+        return leitmotif_pred

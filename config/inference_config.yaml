@@ -1,5 +1,5 @@
 cfg:
-  model: RNN
+  model: CNN
   split: version
   discretization: 16
   random_seed: 1204

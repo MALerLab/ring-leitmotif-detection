@@ -1,5 +1,5 @@
 cfg:
-  model: RNN
+  model: CNN
   split: version
   random_seed: 1204
   train_singing: false
@@ -17,9 +17,5 @@ hyperparams:
   lr: 0.002
   adv_lr_multiplier: 10
   num_epochs: 40
-  train_adv: false
-  adv_grad_multiplier: 0.01
-  adv_grad_iter: 2000
-  mlp_hidden_size: default
   mixup_prob: 0
   mixup_alpha: 0

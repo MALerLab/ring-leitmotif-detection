@@ -8,12 +8,8 @@ from omegaconf import DictConfig
 from tqdm.auto import tqdm
 from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
-from modules.baselines import RNNModel, CNNModel
+from modules.baselines import CNNModel
 import constants as C
-
-def infer_rnn(model, cqt):
-    leitmotif_out, _, _ = model(cqt.unsqueeze(0))
-    return leitmotif_out.squeeze(0)
 
 def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
     increment = duration_samples - overlap
@@ -31,8 +27,6 @@ def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
         t_end = min(i + duration_samples - (overlap//2), cqt.shape[0])
         s_start = overlap//2
         s_end = duration_samples - (overlap//2) if t_end < cqt.shape[0] else None
-
-        # print(f"total: {cqt.shape[0]}, t_start: {t_start}, t_end: {t_end}, s_start: {s_start}, s_end: {s_end}")
 
         leitmotif_out[t_start:t_end] = leitmotif_pred[0, s_start:s_end]
     return leitmotif_out
@@ -78,9 +72,7 @@ def main(config: DictConfig):
     transform = CQT1992v2().to(DEV)
 
     model = None
-    if cfg.model == "RNN":
-        model = RNNModel(num_classes=dataset.num_classes)
-    elif cfg.model == "CNN":
+    if cfg.model == "CNN":
         model = CNNModel(num_classes=dataset.num_classes)
     else:
         raise ValueError("Invalid model name")
@@ -96,9 +88,7 @@ def main(config: DictConfig):
             wav = wavs[fn]
             cqt = transform(wav.to(DEV)).squeeze(0)
             cqt = (cqt / cqt.max()).T
-            if cfg.model == "RNN":
-                leitmotif_pred = infer_rnn(model, cqt)
-            elif cfg.model == "CNN":
+            if cfg.model == "CNN":
                 leitmotif_pred = infer_cnn(model, cqt, num_classes=dataset.num_classes)
 
             # Apply median filter

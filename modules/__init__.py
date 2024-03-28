@@ -1,2 +1,2 @@
-from .baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
+from .baselines import CNNModel, CRNNModel
 from .film import FiLMModel, FiLMAttnModel
