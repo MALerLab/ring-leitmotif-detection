@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules.baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
+from modules import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel, FiLMModel, FiLMAttnModel
 from data_utils import get_binary_f1, get_tp_fp_fn, get_multiclass_acc
 import constants as C
 
@@ -66,6 +66,14 @@ class Trainer:
                 self.optimizer.step()
         self.model.unfreeze_backbone()
 
+    def randomize_none_samples(self, leitmotif_gt):
+        label_sum = leitmotif_gt.sum(dim=1)
+        labels = label_sum.argmax(dim=-1)
+        is_non = label_sum.max(dim=-1).values == 0
+        random_label = torch.randint(0, leitmotif_gt.shape[-1], (sum(is_non),)).to(self.device)
+        labels[is_non] = random_label
+        return labels
+
     def train(self):
         if self.cfg.log_to_wandb:
             wandb.init(project=self.cfg.wandb_project,
@@ -89,7 +97,16 @@ class Trainer:
                 leitmotif_gt = leitmotif_gt.to(self.device)
                 singing_gt = singing_gt.to(self.device)
                 version_gt = version_gt.to(self.device)
-                leitmotif_pred, singing_pred, version_pred = self.model(wav)
+
+                if self.cfg.model in ["FiLM", "FiLMAttn"]:
+                    # Fill none samples with random labels
+                    labels = self.randomize_none_samples(leitmotif_gt)
+                    leitmotif_pred, _, _ = self.model(wav, labels)
+                    leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
+                    leitmotif_gt = leitmotif_gt[torch.arange(leitmotif_gt.shape[0]), :, labels]
+                else:
+                    leitmotif_pred, singing_pred, version_pred = self.model(wav)
+
                 leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                 loss = leitmotif_loss
 
@@ -137,7 +154,15 @@ class Trainer:
                     leitmotif_gt = leitmotif_gt.to(self.device)
                     singing_gt = singing_gt.to(self.device)
                     version_gt = version_gt.to(self.device)
-                    leitmotif_pred, singing_pred, version_pred = self.model(wav)
+
+                    if self.cfg.model in ["FiLM", "FiLMAttn"]:
+                        labels = self.randomize_none_samples(leitmotif_gt)
+                        leitmotif_pred, singing_pred, version_pred = self.model(wav, labels)
+                        leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
+                        leitmotif_gt = leitmotif_gt[torch.arange(leitmotif_gt.shape[0]), :, labels]
+                    else:
+                        leitmotif_pred, singing_pred, version_pred = self.model(wav)
+
                     leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                     total_loss += leitmotif_loss.item()
                     if self.cfg.log_to_wandb:
@@ -221,6 +246,10 @@ def main(config: DictConfig):
         model = CNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
                          adv_grad_multiplier=hyperparams.adv_grad_multiplier,
                          num_classes=base_set.num_classes)
+    elif cfg.model == "FiLM":
+        model = FiLMModel(num_classes=base_set.num_classes)
+    elif cfg.model == "FiLMAttn":
+        model = FiLMAttnModel(num_classes=base_set.num_classes)
     else:
         raise ValueError("Invalid model type")
     
