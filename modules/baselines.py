@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from nnAudio.features.cqt import CQT1992v2
 
 class DilatedMaxPool2d(nn.Module):
     """
@@ -107,12 +108,15 @@ class RNNModel(torch.nn.Module):
                  num_layers=3,
                  num_classes=21):
         super().__init__()
+        self.transform = CQT1992v2()
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
         self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
         self.proj = nn.Linear(hidden_size * 2, num_classes)
     
     def forward(self, x):
-        lstm_out, _ = self.lstm(x)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        lstm_out, _ = self.lstm(cqt)
         lstm_out = lstm_out.transpose(1, 2)
         lstm_out = self.batch_norm(lstm_out)
         lstm_out = lstm_out.transpose(1, 2)
@@ -123,11 +127,14 @@ class RNNModel(torch.nn.Module):
 class CNNModel(torch.nn.Module):
     def __init__(self, num_classes=21):
         super().__init__()
+        self.transform = CQT1992v2()
         self.stack = ConvStack()
         self.proj = nn.Linear(64, num_classes)
 
     def forward(self, x):
-        cnn_out = self.stack(x)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        cnn_out = self.stack(cqt)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
         return leitmotif_pred, None, None
     
@@ -138,13 +145,16 @@ class CRNNModel(torch.nn.Module):
                  num_layers=3,
                  num_classes=21):
         super().__init__()
+        self.transform = CQT1992v2()
         self.stack = ConvStack()
         self.lstm = nn.LSTM(64, hidden_size, batch_first=True, num_layers=num_layers)
         self.batch_norm = nn.BatchNorm1d(hidden_size)
         self.proj = nn.Linear(hidden_size, num_classes)
     
     def forward(self, x):
-        cnn_out = self.stack(x)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        cnn_out = self.stack(cqt)
         lstm_out, _ = self.lstm(cnn_out)
         lstm_out = lstm_out.transpose(1, 2)
         lstm_out = self.batch_norm(lstm_out)
@@ -162,6 +172,7 @@ class RNNAdvModel(torch.nn.Module):
                  adv_grad_multiplier=0.01,
                  num_classes=21):
         super().__init__()
+        self.transform = CQT1992v2()
         if mlp_hidden_size == 'default':
             mlp_hidden_size = 64
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
@@ -192,7 +203,9 @@ class RNNAdvModel(torch.nn.Module):
         self.proj.requires_grad_(True)
     
     def forward(self, x):
-        lstm_out, _ = self.lstm(x)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        lstm_out, _ = self.lstm(cqt)
         lstm_out = lstm_out.transpose(1, 2)
         lstm_out = self.batch_norm(lstm_out)
         lstm_out = lstm_out.transpose(1, 2)
@@ -208,6 +221,7 @@ class CNNAdvModel(torch.nn.Module):
                  mlp_hidden_size='default',
                  num_classes=21):
         super().__init__()
+        self.transform = CQT1992v2()
         if mlp_hidden_size == 'default':
             mlp_hidden_size = 64
         self.stack = ConvStack()
@@ -235,7 +249,9 @@ class CNNAdvModel(torch.nn.Module):
         self.convstack.stack2.requires_grad_(True)
     
     def forward(self, x):
-        cnn_out = self.stack(x)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        cnn_out = self.stack(cqt)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
         singing_pred = self.singing_mlp(cnn_out)
         version_pred = self.version_mlp(cnn_out)

@@ -84,12 +84,12 @@ class Trainer:
             self.dataset.enable_mixup()
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
                 # Leitmotif train loop
-                cqt, leitmotif_gt, singing_gt, version_gt = batch
-                cqt = cqt.to(self.device)
+                wav, leitmotif_gt, singing_gt, version_gt = batch
+                wav = wav.to(self.device)
                 leitmotif_gt = leitmotif_gt.to(self.device)
                 singing_gt = singing_gt.to(self.device)
                 version_gt = version_gt.to(self.device)
-                leitmotif_pred, singing_pred, version_pred = self.model(cqt)
+                leitmotif_pred, singing_pred, version_pred = self.model(wav)
                 leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                 loss = leitmotif_loss
 
@@ -132,11 +132,12 @@ class Trainer:
                 total_loss = 0
                 total_tp, total_fp, total_fn = 0, 0, 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
-                    cqt, leitmotif_gt, singing_gt, version_gt = batch
-                    cqt = cqt.to(self.device)
+                    wav, leitmotif_gt, singing_gt, version_gt = batch
+                    wav = wav.to(self.device)
                     leitmotif_gt = leitmotif_gt.to(self.device)
                     singing_gt = singing_gt.to(self.device)
-                    leitmotif_pred, singing_pred, version_pred = self.model(cqt)
+                    version_gt = version_gt.to(self.device)
+                    leitmotif_pred, singing_pred, version_pred = self.model(wav)
                     leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
                     total_loss += leitmotif_loss.item()
                     if self.cfg.log_to_wandb:
@@ -189,8 +190,21 @@ def main(config: DictConfig):
         raise ValueError("Invalid split method")
 
     rng = torch.Generator().manual_seed(cfg.random_seed)
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=32, shuffle=True, generator=rng, collate_fn=collate_fn, num_workers=4)
-    valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=32, shuffle=False, collate_fn = collate_fn, num_workers=4)
+    train_loader = torch.utils.data.DataLoader(train_set, 
+                                               batch_size=32, 
+                                               shuffle=True, 
+                                               generator=rng, 
+                                               collate_fn=collate_fn, 
+                                               num_workers=4,
+                                               pin_memory=True,
+                                               pin_memory_device=DEV)
+    valid_loader = torch.utils.data.DataLoader(valid_set, 
+                                               batch_size=32, 
+                                               shuffle=False, 
+                                               collate_fn = collate_fn,
+                                               num_workers=4,
+                                               pin_memory=True,
+                                               pin_memory_device=DEV)
 
     model = None
     if cfg.model == "RNN":
