@@ -73,6 +73,7 @@ def get_binary_f1(pred, gt, threshold):
     Returns (f1, precision, recall) for binary classification.\n
     pred and gt must have the same shape.\n
     """
+    assert pred.shape == gt.shape
     tp = ((pred > threshold) & (gt == 1)).sum().item()
     if tp == 0:
         tp = 0.0001
@@ -88,6 +89,7 @@ def get_tp_fp_fn(pred, gt, threshold):
     Returns (f1, precision, recall) for binary classification.\n
     pred and gt must have the same shape.\n
     """
+    assert pred.shape == gt.shape
     tp = ((pred > threshold) & (gt == 1)).sum().item()
     if tp == 0:
         tp = 0.0001
