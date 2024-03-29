@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from tqdm.auto import tqdm
 from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
-from modules.baselines import CNNModel
+from modules import CNNModel, FiLMModel, FiLMAttnModel
 import constants as C
 
 def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
@@ -29,6 +29,53 @@ def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
         s_end = duration_samples - (overlap//2) if t_end < cqt.shape[0] else None
 
         leitmotif_out[t_start:t_end] = leitmotif_pred[0, s_start:s_end]
+    return leitmotif_out
+
+def infer_film(model, cqt, duration_samples=646, overlap=236, num_classes=21):
+    increment = duration_samples - overlap
+    leitmotif_out = torch.zeros((cqt.shape[0], num_classes))
+    for motif in tqdm(range(num_classes), leave=False, ascii=True):
+        for i in tqdm(range(0, cqt.shape[0], increment), leave=False, ascii=True):
+            x = cqt[i:i+duration_samples, :]
+            if x.shape[0] <= overlap//2:
+                break
+            x = x.unsqueeze(0)
+            cnn_out = model.cnn_forward(x, torch.tensor([motif]))
+            leitmotif_pred = model.proj(cnn_out).sigmoid()
+
+            # target and source slice positions
+            t_start = i + (overlap//2)
+            t_end = min(i + duration_samples - (overlap//2), cqt.shape[0])
+            s_start = overlap//2
+            s_end = duration_samples - (overlap//2) if t_end < cqt.shape[0] else None
+
+            leitmotif_out[t_start:t_end, motif] = leitmotif_pred[0, s_start:s_end]
+    return leitmotif_out
+
+def infer_filmattn(model, cqt, duration_samples=646, overlap=236, num_classes=21):
+    increment = duration_samples - overlap
+    leitmotif_out = torch.zeros((cqt.shape[0], num_classes))
+    for motif in tqdm(range(num_classes), leave=False, ascii=True):
+        for i in tqdm(range(0, cqt.shape[0], increment), leave=False, ascii=True):
+            x = cqt[i:i+duration_samples, :]
+            if x.shape[0] <= overlap//2:
+                break
+            x = x.unsqueeze(0)
+            cnn_out = model.cnn_forward(x, torch.tensor([motif]))
+            cnn_out = cnn_out + model.pos_enc(cnn_out)
+            label_emb = model.film_gen.emb(torch.tensor([motif]))
+            label_emb += model.bias_for_emb.unsqueeze(0)
+            cat_emb = torch.cat([label_emb.unsqueeze(1), cnn_out], dim=1)
+            encoder_out = model.encoder(cat_emb)
+            leitmotif_pred = model.proj(encoder_out).sigmoid()[:, 1:]
+
+            # target and source slice positions
+            t_start = i + (overlap//2)
+            t_end = min(i + duration_samples - (overlap//2), cqt.shape[0])
+            s_start = overlap//2
+            s_end = duration_samples - (overlap//2) if t_end < cqt.shape[0] else None
+
+            leitmotif_out[t_start:t_end, motif] = leitmotif_pred[0, s_start:s_end]
     return leitmotif_out
 
 def medfilt(x, k=21):
@@ -52,7 +99,6 @@ def main(config: DictConfig):
 
     dataset = OTFDataset(Path("data/wav-22050"),
                          Path("data/LeitmotifOccurrencesInstances/Instances"),
-                         Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
                          include_none_class=hyperparams.include_none_class,
                          mixup_prob=0,
                          mixup_alpha=0,
@@ -74,6 +120,17 @@ def main(config: DictConfig):
     model = None
     if cfg.model == "CNN":
         model = CNNModel(num_classes=dataset.num_classes)
+    elif cfg.model == "FiLM":
+        model = FiLMModel(num_classes=dataset.num_classes,
+                          filmgen_emb=hyperparams.filmgen_emb,
+                          filmgen_hidden=hyperparams.filmgen_hidden)
+    elif cfg.model == "FiLMAttn":
+        model = FiLMAttnModel(num_classes=dataset.num_classes,
+                              filmgen_emb=hyperparams.filmgen_emb,
+                              filmgen_hidden=hyperparams.filmgen_hidden,
+                              attn_dim=hyperparams.attn_dim,
+                              attn_depth=hyperparams.attn_depth,
+                              attn_heads=hyperparams.attn_heads)
     else:
         raise ValueError("Invalid model name")
     model.load_state_dict(torch.load(cfg.load_checkpoint)["model"], strict=False)
@@ -90,6 +147,10 @@ def main(config: DictConfig):
             cqt = (cqt / cqt.max()).T
             if cfg.model == "CNN":
                 leitmotif_pred = infer_cnn(model, cqt, num_classes=dataset.num_classes)
+            elif cfg.model == "FiLM":
+                leitmotif_pred = infer_film(model, cqt, num_classes=dataset.num_classes)
+            elif cfg.model == "FiLMAttn":
+                leitmotif_pred = infer_filmattn(model, cqt, num_classes=dataset.num_classes)
 
             # Apply median filter
             for i in range(leitmotif_pred.shape[1]):
