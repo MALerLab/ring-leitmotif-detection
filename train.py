@@ -61,6 +61,7 @@ class Trainer:
         self.model.to(self.device)
         num_iter = 0
         best_valid_f1 = 0
+        best_ckpt_path = None
         last_ckpt_path = None
         for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs), ascii=True):
             self.cur_epoch = epoch
@@ -74,8 +75,8 @@ class Trainer:
 
                 if self.cfg.model in ["FiLM", "FiLMAttn"]:
                     labels = self.randomize_none_samples(leitmotif_gt)
-                    leitmotif_pred = self.model(wav, labels)
-                    leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
+                    leitmotif_pred = self.model(wav, labels).squeeze(-1)
+                    # leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
                     leitmotif_gt = leitmotif_gt[torch.arange(leitmotif_gt.shape[0]), :, labels]
                 else:
                     leitmotif_pred = self.model(wav)
@@ -97,6 +98,7 @@ class Trainer:
             with torch.inference_mode():
                 total_loss = 0
                 total_tp, total_fp, total_fn = 0, 0, 0
+                total_f1, total_p, total_r = 0, 0, 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
                     wav, leitmotif_gt = batch
                     wav = wav.to(self.device)
@@ -104,8 +106,8 @@ class Trainer:
 
                     if self.cfg.model in ["FiLM", "FiLMAttn"]:
                         labels = self.randomize_none_samples(leitmotif_gt)
-                        leitmotif_pred = self.model(wav, labels)
-                        leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
+                        leitmotif_pred = self.model(wav, labels).squeeze(-1)
+                        # leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
                         leitmotif_gt = leitmotif_gt[torch.arange(leitmotif_gt.shape[0]), :, labels]
                     else:
                         leitmotif_pred = self.model(wav)
@@ -113,25 +115,37 @@ class Trainer:
                     loss = self.bce(leitmotif_pred, leitmotif_gt)
                     total_loss += loss.item()
                     if self.cfg.log_to_wandb:
-                        tp, fp, fn = get_tp_fp_fn(leitmotif_pred, leitmotif_gt, 0.5)
-                        total_tp += tp
-                        total_fp += fp
-                        total_fn += fn
+                        # tp, fp, fn = get_tp_fp_fn(leitmotif_pred, leitmotif_gt, 0.5)
+                        # total_tp += tp
+                        # total_fp += fp
+                        # total_fn += fn
+                        f1, p, r = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
+                        total_f1 += f1
+                        total_p += p
+                        total_r += r
                     
                 if self.cfg.log_to_wandb:
                     avg_loss = total_loss / len(self.valid_loader)
-                    p = tp / (tp + fp)
-                    r = tp / (tp + fn)
-                    f1 = 2 * p * r / (p + r)
+                    # p = tp / (tp + fp)
+                    # r = tp / (tp + fn)
+                    # f1 = 2 * p * r / (p + r)
+                    p = total_p / len(self.valid_loader)
+                    r = total_r / len(self.valid_loader)
+                    f1 = total_f1 / len(self.valid_loader)
                     wandb.log({"valid/loss": avg_loss, "valid/precision": p, "valid/recall": r, "valid/f1": f1}, step=num_iter)
 
                 if f1 > best_valid_f1:
                     best_valid_f1 = f1
-                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_epoch{self.cur_epoch}_{f1}.pt"
-                    if last_ckpt_path is not None:
-                        last_ckpt_path.unlink(missing_ok=True)
-                    last_ckpt_path = ckpt_path
+                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_best_epoch{self.cur_epoch}_{f1}.pt"
+                    if best_ckpt_path is not None:
+                        best_ckpt_path.unlink(missing_ok=True)
+                    best_ckpt_path = ckpt_path
                     self.save_checkpoint(ckpt_path)
+                
+                if last_ckpt_path is not None:
+                    last_ckpt_path.unlink(missing_ok=True)
+                last_ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_last.pt"
+                self.save_checkpoint(last_ckpt_path)
         
         if self.cfg.log_to_wandb:
             wandb.finish()
@@ -183,9 +197,16 @@ def main(config: DictConfig):
     elif cfg.model == "CRNN":
         model = CRNNModel(num_classes=base_set.num_classes)
     elif cfg.model == "FiLM":
-        model = FiLMModel(num_classes=base_set.num_classes)
+        model = FiLMModel(num_classes=base_set.num_classes,
+                          filmgen_emb=hyperparams.filmgen_emb,
+                          filmgen_hidden=hyperparams.filmgen_hidden)
     elif cfg.model == "FiLMAttn":
-        model = FiLMAttnModel(num_classes=base_set.num_classes)
+        model = FiLMAttnModel(num_classes=base_set.num_classes,
+                              filmgen_emb=hyperparams.filmgen_emb,
+                              filmgen_hidden=hyperparams.filmgen_hidden,
+                              attn_dim=hyperparams.attn_dim,
+                              attn_depth=hyperparams.attn_depth,
+                              attn_heads=hyperparams.attn_heads)
     else:
         raise ValueError("Invalid model type")
     

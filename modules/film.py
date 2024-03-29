@@ -16,7 +16,7 @@ class FiLMGenerator(nn.Module):
                  emb_dim=64,
                  hidden_dim=128,
                  num_layers=1,
-                 total_conv_channels=128):
+                 total_conv_channels=0):
         super().__init__()
         self.num_layers = num_layers
         self.emb = nn.Embedding(num_vocab, emb_dim)
@@ -81,25 +81,26 @@ class ResBlock(nn.Module):
 
 
 class FiLMModel(torch.nn.Module):
-    def __init__(self, num_classes=21):
+    def __init__(self,
+                 num_classes=21,
+                 filmgen_emb=64,
+                 filmgen_hidden=64):
         super().__init__()
         self.transform = CQT1992v2()
         self.stack = ConvStack()
-        self.proj = nn.Linear(64, num_classes)
+        self.proj = nn.Linear(64, 1)
         total_conv_channels = sum([layer.out_channels for layer in self.stack.stack1 if isinstance(
             layer, nn.Conv2d)]) + sum([layer.out_channels for layer in self.stack.stack2 if isinstance(layer, nn.Conv1d)])
         self.film_gen = FiLMGenerator(num_vocab=num_classes,
-                                      emb_dim=64,
-                                      hidden_dim=128,
+                                      emb_dim=filmgen_emb,
+                                      hidden_dim=filmgen_hidden,
                                       num_layers=2,
                                       total_conv_channels=total_conv_channels)
         self.film = FiLM()
         self.film1d = FiLM1d()
 
-    def cnn_forward(self, x, label):
-        cqt = self.transform(x)
-        cqt = (cqt / cqt.max()).transpose(1, 2)
-        film_params = self.film_gen(label)
+    def cnn_forward(self, cqt, labels):
+        film_params = self.film_gen(labels)
         x = cqt.unsqueeze(1)
 
         idx = 0
@@ -123,21 +124,36 @@ class FiLMModel(torch.nn.Module):
         return cnn_out
 
     def forward(self, x, labels):
-        cnn_out = self.cnn_forward(x, labels)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        cnn_out = self.cnn_forward(cqt, labels)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
         return leitmotif_pred
 
 
 class FiLMAttnModel(FiLMModel):
-    def __init__(self, num_classes=21):
-        super().__init__(num_classes)
-        self.pos_enc = ScaledSinusoidalEmbedding(64)
-        self.encoder = Encoder(dim=64, depth=2, heads=4,
-                               attn_dropout=0.2, ff_dropout=0.2)
-        self.bias_for_emb = nn.Parameter(torch.zeros(64))
+    def __init__(self,
+                 num_classes=21,
+                 filmgen_emb=64,
+                 filmgen_hidden=64,
+                 attn_dim=64,
+                 attn_depth=3,
+                 attn_heads=6):
+        super().__init__(num_classes,
+                         filmgen_emb,
+                         filmgen_hidden)
+        self.pos_enc = ScaledSinusoidalEmbedding(attn_dim)
+        self.encoder = Encoder(dim=attn_dim,
+                               depth=attn_depth,
+                               heads=attn_heads,
+                               attn_dropout=0.2,
+                               ff_dropout=0.2)
+        self.bias_for_emb = nn.Parameter(torch.zeros(attn_dim))
 
     def forward(self, x, labels):
-        cnn_out = self.cnn_forward(x, labels)
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        cnn_out = self.cnn_forward(cqt, labels)
         cnn_out = cnn_out + self.pos_enc(cnn_out)
 
         # Add separate embeddings for class label
@@ -147,4 +163,4 @@ class FiLMAttnModel(FiLMModel):
 
         out = self.encoder(cat_emb)
         leitmotif_pred = self.proj(out).sigmoid()
-        return leitmotif_pred
+        return leitmotif_pred[:, 1:]
