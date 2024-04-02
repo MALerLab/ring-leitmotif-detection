@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Function
 from nnAudio.features.cqt import CQT1992v2
+from x_transformers.x_transformers import ScaledSinusoidalEmbedding, Encoder
 
 class DilatedMaxPool2d(nn.Module):
     """
@@ -77,54 +78,7 @@ class ConvStack(nn.Module):
         x = self.stack2(x)
         return x.transpose(1, 2)
 
-# Gradient reversal layer from: https://github.com/tadeephuy/GradientReversal
-class GradientReversal(Function):
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.save_for_backward(x, alpha)
-        return x
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_input = None
-        _, alpha = ctx.saved_tensors
-        if ctx.needs_input_grad[0]:
-            grad_input = - alpha*grad_output
-        return grad_input, None
-revgrad = GradientReversal.apply
-
-class GradientReversal(nn.Module):
-    def __init__(self, alpha):
-        super().__init__()
-        self.alpha = torch.tensor(alpha, requires_grad=False)
-
-    def forward(self, x):
-        return revgrad(x, self.alpha)
-    
-class RNNModel(torch.nn.Module):
-    def __init__(self, 
-                 input_size=84, 
-                 hidden_size=128,
-                 num_layers=3,
-                 num_classes=21):
-        super().__init__()
-        self.transform = CQT1992v2()
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
-        self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
-        self.proj = nn.Linear(hidden_size * 2, num_classes)
-    
-    def forward(self, x):
-        cqt = self.transform(x)
-        cqt = (cqt / cqt.max()).transpose(1, 2)
-        lstm_out, _ = self.lstm(cqt)
-        lstm_out = lstm_out.transpose(1, 2)
-        lstm_out = self.batch_norm(lstm_out)
-        lstm_out = lstm_out.transpose(1, 2)
-        leitmotif_pred = self.proj(lstm_out).sigmoid()
-        return leitmotif_pred, None, None
-    
-
-class CNNModel(torch.nn.Module):
+class CNNModel(nn.Module):
     def __init__(self, num_classes=21):
         super().__init__()
         self.transform = CQT1992v2()
@@ -136,9 +90,9 @@ class CNNModel(torch.nn.Module):
         cqt = (cqt / cqt.max()).transpose(1, 2)
         cnn_out = self.stack(cqt)
         leitmotif_pred = self.proj(cnn_out).sigmoid()
-        return leitmotif_pred, None, None
+        return leitmotif_pred
     
-class CRNNModel(torch.nn.Module):
+class CRNNModel(nn.Module):
     def __init__(self, 
                  input_size=84, 
                  hidden_size=128,
@@ -160,99 +114,28 @@ class CRNNModel(torch.nn.Module):
         lstm_out = self.batch_norm(lstm_out)
         lstm_out = lstm_out.transpose(1, 2)
         leitmotif_pred = self.proj(lstm_out).sigmoid()
-        return leitmotif_pred, None, None
+        return leitmotif_pred
 
-class RNNAdvModel(torch.nn.Module):
-    def __init__(self, 
-                 input_size=84, 
-                 hidden_size=128,
-                 mlp_hidden_size='default',
-                 num_layers=3, 
-                 num_versions=16,
-                 adv_grad_multiplier=0.01,
-                 num_classes=21):
-        super().__init__()
-        self.transform = CQT1992v2()
-        if mlp_hidden_size == 'default':
-            mlp_hidden_size = 64
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers, bidirectional=True)
-        self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
-        self.proj = nn.Linear(hidden_size * 2, num_classes)
-        self.singing_mlp = nn.Sequential(
-            GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(hidden_size * 2, mlp_hidden_size),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_size, 1),
-            nn.Sigmoid()
-        )
-        self.version_mlp = nn.Sequential(
-            GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(hidden_size * 2, mlp_hidden_size),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_size, num_versions)
-        )
-    
-    def freeze_backbone(self):
-        self.lstm.requires_grad_(False)
-        self.batch_norm.requires_grad_(False)
-        self.proj.requires_grad_(False)
 
-    def unfreeze_backbone(self):
-        self.lstm.requires_grad_(True)
-        self.batch_norm.requires_grad_(True)
-        self.proj.requires_grad_(True)
-    
-    def forward(self, x):
-        cqt = self.transform(x)
-        cqt = (cqt / cqt.max()).transpose(1, 2)
-        lstm_out, _ = self.lstm(cqt)
-        lstm_out = lstm_out.transpose(1, 2)
-        lstm_out = self.batch_norm(lstm_out)
-        lstm_out = lstm_out.transpose(1, 2)
-        leitmotif_pred = self.proj(lstm_out).sigmoid()
-        singing_pred = self.singing_mlp(lstm_out)
-        version_pred = self.version_mlp(lstm_out)
-        return leitmotif_pred, singing_pred, version_pred
-    
-class CNNAdvModel(torch.nn.Module):
+class CNNAttnModel(CNNModel):
     def __init__(self,
-                 num_versions=16,
-                 adv_grad_multiplier=0.01,
-                 mlp_hidden_size='default',
-                 num_classes=21):
-        super().__init__()
-        self.transform = CQT1992v2()
-        if mlp_hidden_size == 'default':
-            mlp_hidden_size = 64
-        self.stack = ConvStack()
-        self.proj = nn.Linear(64, num_classes)
-        self.singing_mlp = nn.Sequential(
-            GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(64, mlp_hidden_size),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_size, 1),
-            nn.Sigmoid()
-        )
-        self.version_mlp = nn.Sequential(
-            GradientReversal(alpha=adv_grad_multiplier),
-            nn.Linear(64, mlp_hidden_size),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_size, num_versions)
-        )
-    
-    def freeze_backbone(self):
-        self.convstack.stack1.requires_grad_(False)
-        self.convstack.stack2.requires_grad_(False)
-
-    def unfreeze_backbone(self):
-        self.convstack.stack1.requires_grad_(True)
-        self.convstack.stack2.requires_grad_(True)
+                 num_classes=21,
+                 attn_dim=64,
+                 attn_depth=3,
+                 attn_heads=6):
+        super().__init__(num_classes)
+        self.pos_enc = ScaledSinusoidalEmbedding(attn_dim)
+        self.encoder = Encoder(dim=attn_dim,
+                               depth=attn_depth,
+                               heads=attn_heads,
+                               attn_dropout=0.2,
+                               ff_dropout=0.2)
     
     def forward(self, x):
         cqt = self.transform(x)
         cqt = (cqt / cqt.max()).transpose(1, 2)
         cnn_out = self.stack(cqt)
-        leitmotif_pred = self.proj(cnn_out).sigmoid()
-        singing_pred = self.singing_mlp(cnn_out)
-        version_pred = self.version_mlp(cnn_out)
-        return leitmotif_pred, singing_pred, version_pred
+        cnn_out = cnn_out + self.pos_enc(cnn_out)
+        enc_out = self.encoder(cnn_out)
+        leitmotif_pred = self.proj(enc_out).sigmoid()
+        return leitmotif_pred

@@ -10,8 +10,6 @@ from data_utils import (
     sample_non_overlapping_interval,
     idx2motif,
     motif2idx,
-    version2idx,
-    id2version
 )
 import constants as C
 
@@ -23,7 +21,6 @@ class OTFDataset:
             self,
             wav_path:Path,
             instances_path: Path,
-            singing_ann_path: Path,
             include_none_class=False,
             duration_sec=15,
             duration_samples=646,
@@ -46,7 +43,6 @@ class OTFDataset:
 
         self.wavs = {}
         self.instances_gts = {}
-        self.singing_gts = {}
         self.samples = []
         self.none_samples = []
         self.num_classes = len(idx2motif) + 1 if include_none_class else len(idx2motif)
@@ -79,17 +75,6 @@ class OTFDataset:
             if include_none_class:
                 # Add "none" class to ground truth
                 self.instances_gts[fn.stem][:, -1] = 1 - self.instances_gts[fn.stem][:, :-1].max(dim=1).values
-
-            # Create singing ground truth tensor
-            self.singing_gts[fn.stem] = torch.zeros((num_frames, 1))
-            singing_ann = pd.read_csv(
-                singing_ann_path / f"Wagner_WWV086{act}_{id2version[version]}.csv", sep=";").itertuples(index=False, name=None)
-            for ann in singing_ann:
-                start = ann[0]
-                end = ann[1]
-                start_idx = int(round(start * 22050 / 512))
-                end_idx = int(round(end * 22050 / 512))
-                self.singing_gts[fn.stem][start_idx:end_idx, 0] = 1
 
         self.sample_intervals()
 
@@ -245,8 +230,7 @@ class OTFDataset:
                 v, a, s, _ = self.none_samples[mixup_idx]
                 mixup_wav = self.wavs[f"{v}_{a}"][s * 512:s * 512 + (self.duration_sec * 22050)]
                 wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
-            version_gt = torch.full((end - start, 1), version2idx[version])
-            return wav, self.instances_gts[fn][start:end, :], self.singing_gts[fn][start:end, :], version_gt
+            return wav, self.instances_gts[fn][start:end, :]
         else:
             idx -= len(self.samples)
             version, act, start, end = self.none_samples[idx]
@@ -254,8 +238,7 @@ class OTFDataset:
             start_samp = start * 512
             end_samp = start_samp + (self.duration_sec * 22050)
             wav = self.wavs[fn][start_samp:end_samp]
-            version_gt = torch.full((end - start, 1), version2idx[version])
-            return wav, torch.zeros((end - start, self.num_classes)), self.singing_gts[fn][start:end, :], version_gt
+            return wav, torch.zeros((end - start, self.num_classes))
         
 class Subset:
     def __init__(self, dataset, indices):
@@ -270,9 +253,7 @@ class Subset:
 
 
 def collate_fn(batch):
-    wav, leitmotif_gt, singing_gt, version_gt = zip(*batch)
+    wav, leitmotif_gt = zip(*batch)
     wav = torch.stack(wav)
     leitmotif_gt = torch.stack(leitmotif_gt)
-    singing_gt = torch.stack(singing_gt)
-    version_gt = torch.stack(version_gt)[..., 0]
-    return wav, leitmotif_gt, singing_gt, version_gt
+    return wav, leitmotif_gt

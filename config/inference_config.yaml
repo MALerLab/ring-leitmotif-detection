@@ -1,5 +1,5 @@
 cfg:
-  model: RNN
+  model: CNN
   split: version
   discretization: 16
   random_seed: 1204
@@ -7,3 +7,8 @@ cfg:
 
 hyperparams:
   include_none_class: false
+  filmgen_emb: 64
+  filmgen_hidden: 64
+  attn_dim: 64
+  attn_depth: 3
+  attn_heads: 6

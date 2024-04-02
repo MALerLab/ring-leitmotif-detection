@@ -6,8 +6,8 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules.baselines import RNNModel, CNNModel, CRNNModel, RNNAdvModel, CNNAdvModel
-from data_utils import get_binary_f1, get_tp_fp_fn, get_multiclass_acc
+from modules import CNNModel, CRNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
+from data_utils import get_binary_f1, get_boundaries, diou_loss
 import constants as C
 
 class Trainer:
@@ -21,7 +21,6 @@ class Trainer:
         self.cfg = cfg
         self.hyperparams = hyperparams
         self.bce = torch.nn.BCELoss()
-        self.ce = torch.nn.CrossEntropyLoss()
         self.cur_epoch = 0
         self.ckpt_dir = Path(f"checkpoints/{self.cfg.model}")
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -43,28 +42,14 @@ class Trainer:
             for k, v in state.items():
                 if torch.is_tensor(v):
                     state[k] = v.to(self.device)
-    
-    def _train_mlp_submodules(self, num_epochs=1, train_singing=False):
-        self.model.train()
-        self.model.freeze_backbone()
-        self.dataset.enable_mixup()
-        for epoch in tqdm(range(num_epochs), leave=False, ascii=True):
-            for batch in tqdm(self.train_loader, leave=False, ascii=True):        
-                cqt, _, singing_gt, version_gt = batch
-                cqt = cqt.to(self.device)
-                singing_gt = singing_gt.to(self.device)
-                version_gt = version_gt.to(self.device)
 
-                _, singing_pred, version_pred = self.model(cqt)
-                version_pred = version_pred.permute(0, 2, 1)
-                loss = self.ce(version_pred, version_gt)
-                if train_singing:
-                    loss += self.bce(singing_pred, singing_gt)
-                self.optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
-                self.optimizer.step()
-        self.model.unfreeze_backbone()
+    def randomize_none_samples(self, gt):
+        label_sum = gt.sum(dim=1)
+        labels = label_sum.argmax(dim=-1)
+        is_non = label_sum.max(dim=-1).values == 0
+        random_label = torch.randint(0, gt.shape[-1], (sum(is_non),)).to(self.device)
+        labels[is_non] = random_label
+        return labels
 
     def train(self):
         if self.cfg.log_to_wandb:
@@ -75,8 +60,8 @@ class Trainer:
         
         self.model.to(self.device)
         num_iter = 0
-        adv_iter = 0
-        best_valid_f1 = 0
+        best_valid_loss = float("inf")
+        best_ckpt_path = None
         last_ckpt_path = None
         for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs), ascii=True):
             self.cur_epoch = epoch
@@ -84,30 +69,24 @@ class Trainer:
             self.dataset.enable_mixup()
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
                 # Leitmotif train loop
-                wav, leitmotif_gt, singing_gt, version_gt = batch
+                wav, gt = batch
                 wav = wav.to(self.device)
-                leitmotif_gt = leitmotif_gt.to(self.device)
-                singing_gt = singing_gt.to(self.device)
-                version_gt = version_gt.to(self.device)
-                leitmotif_pred, singing_pred, version_pred = self.model(wav)
-                leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
-                loss = leitmotif_loss
+                gt = gt.to(self.device)
 
-                if self.hyperparams.train_adv:
-                    # Adversarial train loop
-                    version_pred = version_pred.permute(0, 2, 1)
-                    version_loss = self.ce(version_pred, version_gt)
-                    adv_loss = version_loss
-
-                    singing_loss = None
-                    if self.cfg.train_singing:
-                        singing_loss = self.bce(singing_pred, singing_gt)
-                        adv_loss += singing_loss
-                    adv_loss_multiplier = min(1, adv_iter / self.hyperparams.adv_grad_iter)
-                    loss += adv_loss_multiplier * adv_loss
-                    if self.cfg.log_to_wandb:
-                        wandb.log({"adv/loss_multiplier": adv_loss_multiplier}, step=num_iter)
-                    adv_iter += 1
+                if self.cfg.model in ["FiLM", "FiLMAttn"]:
+                    labels = self.randomize_none_samples(gt)
+                    pred = self.model(wav, labels).squeeze(-1)
+                    pred = pred[torch.arange(pred.shape[0]), :, labels]
+                    gt = gt[torch.arange(gt.shape[0]), :, labels]
+                    loss = self.bce(pred, gt)
+                elif self.cfg.model == "BBox":
+                    pred = self.model(wav)
+                    pred = pred.reshape(-1, 2)
+                    gt = get_boundaries(gt, device=self.device)
+                    loss, iou = diou_loss(pred, gt)
+                else:
+                    pred = self.model(wav)
+                    loss = self.bce(pred, gt)
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -115,51 +94,71 @@ class Trainer:
                 self.optimizer.step()
 
                 if self.cfg.log_to_wandb:
-                    f1, precision, recall = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
-                    wandb.log({"train/loss": leitmotif_loss.item(), "train/precision": precision, "train/recall": recall, "train/f1": f1}, step=num_iter)
-                    wandb.log({"train/total_loss": loss.item()}, step=num_iter)
-                    if self.hyperparams.train_adv:
-                        wandb.log({"adv/version_loss": version_loss.item()}, step=num_iter)
-                        wandb.log({"adv/version_acc": get_multiclass_acc(version_pred, version_gt)}, step=num_iter)
-                        if self.cfg.train_singing:
-                            f1, precision, recall = get_binary_f1(singing_pred, singing_gt, 0.5)
-                            wandb.log({"adv/singing_loss": singing_loss.item(), "adv/singing_train_f1": f1}, step=num_iter)
+                    if self.cfg.model == "BBox":
+                        wandb.log({"train/loss": loss.item(), "train/iou": iou}, step=num_iter)
+                    else:
+                        f1, precision, recall = get_binary_f1(pred, gt, 0.5)
+                        wandb.log({"train/loss": loss.item(), "train/precision": precision, "train/recall": recall, "train/f1": f1}, step=num_iter)
+                        wandb.log({"train/total_loss": loss.item()}, step=num_iter)
                 num_iter += 1
 
             self.model.eval()
             self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
-                total_tp, total_fp, total_fn = 0, 0, 0
+                total_f1, total_p, total_r, total_iou = 0, 0, 0, 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
-                    wav, leitmotif_gt, singing_gt, version_gt = batch
+                    wav, gt = batch
                     wav = wav.to(self.device)
-                    leitmotif_gt = leitmotif_gt.to(self.device)
-                    singing_gt = singing_gt.to(self.device)
-                    version_gt = version_gt.to(self.device)
-                    leitmotif_pred, singing_pred, version_pred = self.model(wav)
-                    leitmotif_loss = self.bce(leitmotif_pred, leitmotif_gt)
-                    total_loss += leitmotif_loss.item()
-                    if self.cfg.log_to_wandb:
-                        tp, fp, fn = get_tp_fp_fn(leitmotif_pred, leitmotif_gt, 0.5)
-                        total_tp += tp
-                        total_fp += fp
-                        total_fn += fn
-                    
-                if self.cfg.log_to_wandb:
-                    avg_loss = total_loss / len(self.valid_loader)
-                    p = tp / (tp + fp)
-                    r = tp / (tp + fn)
-                    f1 = 2 * p * r / (p + r)
-                    wandb.log({"valid/loss": avg_loss, "valid/precision": p, "valid/recall": r, "valid/f1": f1})
+                    gt = gt.to(self.device)
 
-                if f1 > best_valid_f1:
-                    best_valid_f1 = f1
-                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_epoch{self.cur_epoch}_{f1}.pt"
-                    if last_ckpt_path is not None:
-                        last_ckpt_path.unlink(missing_ok=True)
-                    last_ckpt_path = ckpt_path
+                    if self.cfg.model in ["FiLM", "FiLMAttn"]:
+                        labels = self.randomize_none_samples(gt)
+                        pred = self.model(wav, labels).squeeze(-1)
+                        gt = gt[torch.arange(gt.shape[0]), :, labels]
+                        loss = self.bce(pred, gt)
+                    elif self.cfg.model == "BBox":
+                        pred = self.model(wav)
+                        pred = pred.reshape(-1, 2)
+                        gt = get_boundaries(gt, device=self.device)
+                        loss, iou = diou_loss(pred, gt)
+                    else:
+                        pred = self.model(wav)
+                        loss = self.bce(pred, gt)
+
+                    total_loss += loss.item()
+                    if self.cfg.log_to_wandb:
+                        if self.cfg.model == "BBox":
+                            total_iou += iou
+                        else:
+                            f1, p, r = get_binary_f1(pred, gt, 0.5)
+                            total_f1 += f1
+                            total_p += p
+                            total_r += r
+                    
+                avg_loss = total_loss / len(self.valid_loader)
+                if self.cfg.log_to_wandb:
+                    if self.cfg.model == "BBox":
+                        avg_iou = total_iou / len(self.valid_loader)
+                        wandb.log({"valid/loss": avg_loss, "valid/iou": avg_iou}, step=num_iter)
+                    else:
+                        p = total_p / len(self.valid_loader)
+                        r = total_r / len(self.valid_loader)
+                        f1 = total_f1 / len(self.valid_loader)
+                        wandb.log({"valid/loss": avg_loss, "valid/precision": p, "valid/recall": r, "valid/f1": f1}, step=num_iter)
+
+                if avg_loss < best_valid_loss:
+                    best_valid_loss = avg_loss
+                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_best_epoch{self.cur_epoch}_{avg_loss:.4f}.pt"
+                    if best_ckpt_path is not None:
+                        best_ckpt_path.unlink(missing_ok=True)
+                    best_ckpt_path = ckpt_path
                     self.save_checkpoint(ckpt_path)
+                
+                if last_ckpt_path is not None:
+                    last_ckpt_path.unlink(missing_ok=True)
+                last_ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_last.pt"
+                self.save_checkpoint(last_ckpt_path)
         
         if self.cfg.log_to_wandb:
             wandb.finish()
@@ -173,7 +172,6 @@ def main(config: DictConfig):
     random.seed(cfg.random_seed)
     base_set = OTFDataset(Path("data/wav-22050"), 
                           Path("data/LeitmotifOccurrencesInstances/Instances"),
-                          Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"),
                           include_none_class = hyperparams.include_none_class,
                           split = cfg.split,
                           mixup_prob = hyperparams.mixup_prob,
@@ -207,29 +205,36 @@ def main(config: DictConfig):
                                                pin_memory_device=DEV)
 
     model = None
-    if cfg.model == "RNN":
-        model = RNNModel(num_classes=base_set.num_classes)
-    elif cfg.model == "CNN":
+    if cfg.model == "CNN":
         model = CNNModel(num_classes=base_set.num_classes)
     elif cfg.model == "CRNN":
         model = CRNNModel(num_classes=base_set.num_classes)
-    elif cfg.model == "RNNAdv":
-        model = RNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
-                         adv_grad_multiplier=hyperparams.adv_grad_multiplier,
-                         num_classes=base_set.num_classes)
-    elif cfg.model == "CNNAdv":
-        model = CNNAdvModel(mlp_hidden_size=hyperparams.mlp_hidden_size,
-                         adv_grad_multiplier=hyperparams.adv_grad_multiplier,
-                         num_classes=base_set.num_classes)
+    elif cfg.model == "FiLM":
+        model = FiLMModel(num_classes=base_set.num_classes,
+                          filmgen_emb=hyperparams.filmgen_emb,
+                          filmgen_hidden=hyperparams.filmgen_hidden)
+    elif cfg.model == "FiLMAttn":
+        model = FiLMAttnModel(num_classes=base_set.num_classes,
+                              filmgen_emb=hyperparams.filmgen_emb,
+                              filmgen_hidden=hyperparams.filmgen_hidden,
+                              attn_dim=hyperparams.attn_dim,
+                              attn_depth=hyperparams.attn_depth,
+                              attn_heads=hyperparams.attn_heads)
+    elif cfg.model == "CNNAttn":
+        model = CNNAttnModel(num_classes=base_set.num_classes,
+                             attn_dim=hyperparams.attn_dim,
+                             attn_depth=hyperparams.attn_depth,
+                             attn_heads=hyperparams.attn_heads)
+    elif cfg.model == "BBox":
+        model = BBoxModel(num_classes=base_set.num_classes,
+                          apply_attn=hyperparams.apply_attn,
+                          attn_dim=hyperparams.attn_dim,
+                          attn_depth=hyperparams.attn_depth,
+                          attn_heads=hyperparams.attn_heads)
     else:
         raise ValueError("Invalid model type")
     
-    mlp_params = [param for name, param in model.named_parameters() if 'mlp' in name]
-    backbone_params = [param for name, param in model.named_parameters() if 'mlp' not in name]
-    optimizer = torch.optim.Adam([
-        {'params': mlp_params, 'lr': hyperparams.lr * hyperparams.adv_lr_multiplier},
-        {'params': backbone_params, 'lr': hyperparams.lr}
-    ])
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparams.lr)
     trainer = Trainer(model, optimizer, base_set, train_loader, valid_loader, DEV, cfg, hyperparams)
     
     trainer.train()

@@ -1,4 +1,5 @@
 import random
+import torch
 
 def sample_instance_intervals(instances, duration, total_duration):
     """
@@ -73,6 +74,7 @@ def get_binary_f1(pred, gt, threshold):
     Returns (f1, precision, recall) for binary classification.\n
     pred and gt must have the same shape.\n
     """
+    assert pred.shape == gt.shape
     tp = ((pred > threshold) & (gt == 1)).sum().item()
     if tp == 0:
         tp = 0.0001
@@ -88,6 +90,7 @@ def get_tp_fp_fn(pred, gt, threshold):
     Returns (f1, precision, recall) for binary classification.\n
     pred and gt must have the same shape.\n
     """
+    assert pred.shape == gt.shape
     tp = ((pred > threshold) & (gt == 1)).sum().item()
     if tp == 0:
         tp = 0.0001
@@ -103,6 +106,44 @@ def get_multiclass_acc(pred, gt):
     """
     pred = pred.argmax(dim=1)
     return (pred == gt).sum().item() / (pred.shape[0] * pred.shape[1])
+
+def get_boundaries(gt, none_start=-300, none_end=-200, device='cuda'):    
+    '''
+    Input: (batch, Time, Classes)
+    Output: ((Batch * Classes), 2)
+    '''
+    gt = gt.transpose(1, 2).reshape(-1, gt.shape[1]) # (batch * classes, time)
+    out = torch.tensor([none_start, none_end]).repeat(gt.shape[0], 1).to(device) # (batch * classes, 2)
+    for i in range(gt.shape[1]):
+        out[:, 0][torch.logical_and(gt[:, i] > 0, out[:, 0] < 0)] = i
+        out[:, 1][torch.logical_and(gt[:, i] > 0, out[:, 0] >= 0)] = i
+    return out
+
+def diou_loss(pred, gt):
+    pred_start, pred_end = pred[:, 0], pred[:, 1]
+    gt_start, gt_end = gt[:, 0], gt[:, 1]
+
+    intersection_start = torch.max(pred_start, gt_start)
+    intersection_end = torch.min(pred_end, gt_end)
+    intersection_length = torch.clamp(intersection_end - intersection_start, min=0)
+
+    # Get union length
+    pred_length = pred_end - pred_start
+    gt_length = gt_end - gt_start
+    union_length = pred_length + gt_length - intersection_length
+
+    iou = intersection_length / union_length
+
+    pred_center = (pred_start + pred_end) / 2
+    gt_center = (gt_start + gt_end) / 2
+    center_distance = torch.abs(pred_center - gt_center)
+
+    # Diagonal length of the smallest enclosing box
+    diagonal_length = torch.sqrt((pred_length ** 2) + (gt_length ** 2))
+
+    diou = iou - (center_distance ** 2) / (diagonal_length ** 2)
+    loss = (1 - diou).mean()
+    return loss, iou.mean()
 
 idx2motif = [
     'Nibelungen',
