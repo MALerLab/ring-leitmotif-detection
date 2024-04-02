@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Function
 from nnAudio.features.cqt import CQT1992v2
+from x_transformers.x_transformers import ScaledSinusoidalEmbedding, Encoder
 
 class DilatedMaxPool2d(nn.Module):
     """
@@ -77,7 +78,7 @@ class ConvStack(nn.Module):
         x = self.stack2(x)
         return x.transpose(1, 2)
 
-class CNNModel(torch.nn.Module):
+class CNNModel(nn.Module):
     def __init__(self, num_classes=21):
         super().__init__()
         self.transform = CQT1992v2()
@@ -91,7 +92,7 @@ class CNNModel(torch.nn.Module):
         leitmotif_pred = self.proj(cnn_out).sigmoid()
         return leitmotif_pred
     
-class CRNNModel(torch.nn.Module):
+class CRNNModel(nn.Module):
     def __init__(self, 
                  input_size=84, 
                  hidden_size=128,
@@ -113,4 +114,28 @@ class CRNNModel(torch.nn.Module):
         lstm_out = self.batch_norm(lstm_out)
         lstm_out = lstm_out.transpose(1, 2)
         leitmotif_pred = self.proj(lstm_out).sigmoid()
+        return leitmotif_pred
+
+
+class CNNAttnModel(CNNModel):
+    def __init__(self,
+                 num_classes=21,
+                 attn_dim=64,
+                 attn_depth=3,
+                 attn_heads=6):
+        super().__init__(num_classes)
+        self.pos_enc = ScaledSinusoidalEmbedding(attn_dim)
+        self.encoder = Encoder(dim=attn_dim,
+                               depth=attn_depth,
+                               heads=attn_heads,
+                               attn_dropout=0.2,
+                               ff_dropout=0.2)
+    
+    def forward(self, x):
+        cqt = self.transform(x)
+        cqt = (cqt / cqt.max()).transpose(1, 2)
+        cnn_out = self.stack(cqt)
+        cnn_out = cnn_out + self.pos_enc(cnn_out)
+        enc_out = self.encoder(cnn_out)
+        leitmotif_pred = self.proj(enc_out).sigmoid()
         return leitmotif_pred
