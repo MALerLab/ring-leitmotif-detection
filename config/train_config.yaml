@@ -1,13 +1,13 @@
 cfg:
-  model: CNN
-  split: version
+  model: BBox
+  split: act
   random_seed: 1204
   train_singing: false
-  save_checkpoint: True
-  log_to_wandb: True
+  save_checkpoint: true
+  log_to_wandb: true
   wandb_project: ring-leitmotif
   run_name: test
-  resume: False
+  resume: false
   run_id: null
   load_checkpoint: null
 
@@ -19,3 +19,9 @@ hyperparams:
   num_epochs: 40
   mixup_prob: 0
   mixup_alpha: 0
+  filmgen_emb: 64
+  filmgen_hidden: 64
+  attn_dim: 64
+  attn_depth: 3
+  attn_heads: 6
+  apply_attn: true # for BBoxModel

@@ -161,6 +161,6 @@ class FiLMAttnModel(FiLMModel):
         label_emb += self.bias_for_emb.unsqueeze(0)
         cat_emb = torch.cat([label_emb.unsqueeze(1), cnn_out], dim=1)
 
-        out = self.encoder(cat_emb)
-        leitmotif_pred = self.proj(out).sigmoid()
+        enc_out = self.encoder(cat_emb)
+        leitmotif_pred = self.proj(enc_out).sigmoid()
         return leitmotif_pred[:, 1:]

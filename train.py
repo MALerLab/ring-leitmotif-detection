@@ -6,8 +6,8 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
-from modules import CNNModel, CRNNModel, FiLMModel, FiLMAttnModel
-from data_utils import get_binary_f1, get_tp_fp_fn
+from modules import CNNModel, CRNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
+from data_utils import get_binary_f1, get_boundaries, diou_loss
 import constants as C
 
 class Trainer:
@@ -43,11 +43,11 @@ class Trainer:
                 if torch.is_tensor(v):
                     state[k] = v.to(self.device)
 
-    def randomize_none_samples(self, leitmotif_gt):
-        label_sum = leitmotif_gt.sum(dim=1)
+    def randomize_none_samples(self, gt):
+        label_sum = gt.sum(dim=1)
         labels = label_sum.argmax(dim=-1)
         is_non = label_sum.max(dim=-1).values == 0
-        random_label = torch.randint(0, leitmotif_gt.shape[-1], (sum(is_non),)).to(self.device)
+        random_label = torch.randint(0, gt.shape[-1], (sum(is_non),)).to(self.device)
         labels[is_non] = random_label
         return labels
 
@@ -60,7 +60,7 @@ class Trainer:
         
         self.model.to(self.device)
         num_iter = 0
-        best_valid_f1 = 0
+        best_valid_loss = float("inf")
         best_ckpt_path = None
         last_ckpt_path = None
         for epoch in tqdm(range(self.cur_epoch, self.hyperparams.num_epochs), ascii=True):
@@ -69,74 +69,87 @@ class Trainer:
             self.dataset.enable_mixup()
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
                 # Leitmotif train loop
-                wav, leitmotif_gt = batch
+                wav, gt = batch
                 wav = wav.to(self.device)
-                leitmotif_gt = leitmotif_gt.to(self.device)
+                gt = gt.to(self.device)
 
                 if self.cfg.model in ["FiLM", "FiLMAttn"]:
-                    labels = self.randomize_none_samples(leitmotif_gt)
-                    leitmotif_pred = self.model(wav, labels).squeeze(-1)
-                    # leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
-                    leitmotif_gt = leitmotif_gt[torch.arange(leitmotif_gt.shape[0]), :, labels]
+                    labels = self.randomize_none_samples(gt)
+                    pred = self.model(wav, labels).squeeze(-1)
+                    pred = pred[torch.arange(pred.shape[0]), :, labels]
+                    gt = gt[torch.arange(gt.shape[0]), :, labels]
+                    loss = self.bce(pred, gt)
+                elif self.cfg.model == "BBox":
+                    pred = self.model(wav)
+                    pred = pred.reshape(-1, 2)
+                    gt = get_boundaries(gt, device=self.device)
+                    loss, iou = diou_loss(pred, gt)
                 else:
-                    leitmotif_pred = self.model(wav)
+                    pred = self.model(wav)
+                    loss = self.bce(pred, gt)
 
-                loss = self.bce(leitmotif_pred, leitmotif_gt)
                 self.optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
                 self.optimizer.step()
 
                 if self.cfg.log_to_wandb:
-                    f1, precision, recall = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
-                    wandb.log({"train/loss": loss.item(), "train/precision": precision, "train/recall": recall, "train/f1": f1}, step=num_iter)
-                    wandb.log({"train/total_loss": loss.item()}, step=num_iter)
+                    if self.cfg.model == "BBox":
+                        wandb.log({"train/loss": loss.item(), "train/iou": iou}, step=num_iter)
+                    else:
+                        f1, precision, recall = get_binary_f1(pred, gt, 0.5)
+                        wandb.log({"train/loss": loss.item(), "train/precision": precision, "train/recall": recall, "train/f1": f1}, step=num_iter)
+                        wandb.log({"train/total_loss": loss.item()}, step=num_iter)
                 num_iter += 1
 
             self.model.eval()
             self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
-                total_tp, total_fp, total_fn = 0, 0, 0
-                total_f1, total_p, total_r = 0, 0, 0
+                total_f1, total_p, total_r, total_iou = 0, 0, 0, 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
-                    wav, leitmotif_gt = batch
+                    wav, gt = batch
                     wav = wav.to(self.device)
-                    leitmotif_gt = leitmotif_gt.to(self.device)
+                    gt = gt.to(self.device)
 
                     if self.cfg.model in ["FiLM", "FiLMAttn"]:
-                        labels = self.randomize_none_samples(leitmotif_gt)
-                        leitmotif_pred = self.model(wav, labels).squeeze(-1)
-                        # leitmotif_pred = leitmotif_pred[torch.arange(leitmotif_pred.shape[0]), :, labels]
-                        leitmotif_gt = leitmotif_gt[torch.arange(leitmotif_gt.shape[0]), :, labels]
+                        labels = self.randomize_none_samples(gt)
+                        pred = self.model(wav, labels).squeeze(-1)
+                        gt = gt[torch.arange(gt.shape[0]), :, labels]
+                        loss = self.bce(pred, gt)
+                    elif self.cfg.model == "BBox":
+                        pred = self.model(wav)
+                        pred = pred.reshape(-1, 2)
+                        gt = get_boundaries(gt, device=self.device)
+                        loss, iou = diou_loss(pred, gt)
                     else:
-                        leitmotif_pred = self.model(wav)
+                        pred = self.model(wav)
+                        loss = self.bce(pred, gt)
 
-                    loss = self.bce(leitmotif_pred, leitmotif_gt)
                     total_loss += loss.item()
                     if self.cfg.log_to_wandb:
-                        # tp, fp, fn = get_tp_fp_fn(leitmotif_pred, leitmotif_gt, 0.5)
-                        # total_tp += tp
-                        # total_fp += fp
-                        # total_fn += fn
-                        f1, p, r = get_binary_f1(leitmotif_pred, leitmotif_gt, 0.5)
-                        total_f1 += f1
-                        total_p += p
-                        total_r += r
+                        if self.cfg.model == "BBox":
+                            total_iou += iou
+                        else:
+                            f1, p, r = get_binary_f1(pred, gt, 0.5)
+                            total_f1 += f1
+                            total_p += p
+                            total_r += r
                     
+                avg_loss = total_loss / len(self.valid_loader)
                 if self.cfg.log_to_wandb:
-                    avg_loss = total_loss / len(self.valid_loader)
-                    # p = tp / (tp + fp)
-                    # r = tp / (tp + fn)
-                    # f1 = 2 * p * r / (p + r)
-                    p = total_p / len(self.valid_loader)
-                    r = total_r / len(self.valid_loader)
-                    f1 = total_f1 / len(self.valid_loader)
-                    wandb.log({"valid/loss": avg_loss, "valid/precision": p, "valid/recall": r, "valid/f1": f1}, step=num_iter)
+                    if self.cfg.model == "BBox":
+                        avg_iou = total_iou / len(self.valid_loader)
+                        wandb.log({"valid/loss": avg_loss, "valid/iou": avg_iou}, step=num_iter)
+                    else:
+                        p = total_p / len(self.valid_loader)
+                        r = total_r / len(self.valid_loader)
+                        f1 = total_f1 / len(self.valid_loader)
+                        wandb.log({"valid/loss": avg_loss, "valid/precision": p, "valid/recall": r, "valid/f1": f1}, step=num_iter)
 
-                if f1 > best_valid_f1:
-                    best_valid_f1 = f1
-                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_best_epoch{self.cur_epoch}_{f1}.pt"
+                if avg_loss < best_valid_loss:
+                    best_valid_loss = avg_loss
+                    ckpt_path = self.ckpt_dir / f"{self.cfg.run_name}_best_epoch{self.cur_epoch}_{avg_loss:.4f}.pt"
                     if best_ckpt_path is not None:
                         best_ckpt_path.unlink(missing_ok=True)
                     best_ckpt_path = ckpt_path
@@ -207,6 +220,17 @@ def main(config: DictConfig):
                               attn_dim=hyperparams.attn_dim,
                               attn_depth=hyperparams.attn_depth,
                               attn_heads=hyperparams.attn_heads)
+    elif cfg.model == "CNNAttn":
+        model = CNNAttnModel(num_classes=base_set.num_classes,
+                             attn_dim=hyperparams.attn_dim,
+                             attn_depth=hyperparams.attn_depth,
+                             attn_heads=hyperparams.attn_heads)
+    elif cfg.model == "BBox":
+        model = BBoxModel(num_classes=base_set.num_classes,
+                          apply_attn=hyperparams.apply_attn,
+                          attn_dim=hyperparams.attn_dim,
+                          attn_depth=hyperparams.attn_depth,
+                          attn_heads=hyperparams.attn_heads)
     else:
         raise ValueError("Invalid model type")
     
