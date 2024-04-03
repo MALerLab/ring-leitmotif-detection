@@ -22,6 +22,7 @@ class OTFDataset:
             wav_path:Path,
             instances_path: Path,
             include_none_class=False,
+            max_none_samples=3000,
             duration_sec=15,
             duration_samples=646,
             split="version",
@@ -30,6 +31,7 @@ class OTFDataset:
             device = "cuda"
     ):
         assert split in ["version", "act"]
+        self.max_none_samples = max_none_samples
         self.split = split
         self.wav_fns = sorted(list(wav_path.glob("*.pt")))
         self.stems = [x.stem for x in self.wav_fns]
@@ -85,6 +87,7 @@ class OTFDataset:
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
             instances = list(pd.read_csv(
                 self.instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
+            instances = [x for x in instances if x[0] in idx2motif]
             total_duration = self.wavs[fn.stem].shape[0] // 22050
 
             # Sample leitmotif instances
@@ -119,6 +122,8 @@ class OTFDataset:
                 round(x[0] * 22050 / 512) + self.duration_samples)) for x in none_samples_act]
             self.none_samples.extend(none_samples_act)
 
+        random.shuffle(self.none_samples)
+        self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
         # Create none sample index lookup table
         self.none_samples_by_version = {}
         for version in C.TRAIN_VERSIONS + C.VALID_VERSIONS:

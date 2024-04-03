@@ -107,7 +107,7 @@ def get_multiclass_acc(pred, gt):
     pred = pred.argmax(dim=1)
     return (pred == gt).sum().item() / (pred.shape[0] * pred.shape[1])
 
-def get_boundaries(gt, none_start=-300, none_end=-200, device='cuda'):    
+def get_boundaries(gt, none_start=-100, none_end=-90, device='cuda'):    
     '''
     Input: (batch, Time, Classes)
     Output: ((Batch * Classes), 2)
@@ -149,23 +149,8 @@ idx2motif = [
     'Nibelungen',
     'Ring',
     'Nibelungenhass',
-    # 'Mime',
-    'Ritt',
     'Waldweben',
-    'Waberlohe',
-    'Horn',
-    # 'Geschwisterliebe',
-    'Schwert',
-    # 'Jugendkraft',
-    'Walhall-b',
-    # 'Riesen',
-    'Feuerzauber',
-    # 'Schicksal',
-    'Unmuth',
-    # 'Liebe',
-    'Siegfried',
-    # 'Mannen',
-    'Vertrag'
+    'Horn'
 ]
 
 motif2idx = {x: i for i, x in enumerate(idx2motif)}

@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from tqdm.auto import tqdm
 from dataset import OTFDataset
 from data_utils import get_binary_f1, id2version, idx2motif
-from modules import CNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel
+from modules import CNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
 import constants as C
 
 def infer_cnn(model, cqt, duration_samples=6460, overlap=236, num_classes=21):
@@ -100,6 +100,38 @@ def infer_cnnattn(model, cqt, duration_samples=646, overlap=236, num_classes=21)
         leitmotif_out[t_start:t_end] = leitmotif_pred[0, s_start:s_end]
     return leitmotif_out
 
+def infer_bbox(model, cqt, duration_samples=646, overlap=440, num_classes=21):
+    increment = duration_samples - overlap
+    leitmotif_out = torch.zeros((cqt.shape[0], num_classes))
+    for i in tqdm(range(0, cqt.shape[0], increment), leave=False, ascii=True):
+        x = cqt[i:i+duration_samples, :]
+        if x.shape[0] <= overlap//2:
+            break
+        elif x.shape[0] < duration_samples:
+            x = torch.cat([x, torch.zeros(duration_samples - x.shape[0], x.shape[1]).to(x.device)], dim=0)
+        x = x.unsqueeze(0)
+
+        out = model.stack(x)
+        if model.apply_attn:
+            out = out + model.pos_enc(out)
+            out = model.encoder(out)
+        out = out.flatten(1, 2)
+        bbox_pred = model.proj(out)
+        bbox_pred = bbox_pred.reshape(bbox_pred.shape[0], -1, 2).squeeze(0)
+        bbox_pred = torch.round(bbox_pred)
+
+        for j in range(bbox_pred.shape[0]):
+            if bbox_pred[j, :].max() < 0:
+                continue
+            start, end = bbox_pred[j, :]
+            start = int(torch.clamp(start, 0, duration_samples).item())
+            end = int(torch.clamp(end, 0, duration_samples).item())
+            leitmotif_out[i+start:i+end, j] += 1
+        
+    leitmotif_out = leitmotif_out / leitmotif_out.max()
+    return leitmotif_out
+
+
 def medfilt(x, k=21):
     assert x.dim() == 1
     k2 = (k - 1) // 2
@@ -158,6 +190,12 @@ def main(config: DictConfig):
                              attn_dim=hyperparams.attn_dim,
                              attn_depth=hyperparams.attn_depth,
                              attn_heads=hyperparams.attn_heads)
+    elif cfg.model == "BBox":
+        model = BBoxModel(num_classes=dataset.num_classes,
+                          apply_attn=hyperparams.apply_attn,
+                          attn_dim=hyperparams.attn_dim,
+                          attn_depth=hyperparams.attn_depth,
+                          attn_heads=hyperparams.attn_heads)
     else:
         raise ValueError("Invalid model name")
     model.load_state_dict(torch.load(cfg.load_checkpoint)["model"], strict=False)
@@ -180,6 +218,8 @@ def main(config: DictConfig):
                 leitmotif_pred = infer_filmattn(model, cqt, num_classes=dataset.num_classes)
             elif cfg.model == "CNNAttn":
                 leitmotif_pred = infer_cnnattn(model, cqt, num_classes=dataset.num_classes)
+            elif cfg.model == "BBox":
+                leitmotif_pred = infer_bbox(model, cqt, num_classes=dataset.num_classes)
 
             # Apply median filter
             for i in range(leitmotif_pred.shape[1]):

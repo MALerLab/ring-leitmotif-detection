@@ -12,3 +12,4 @@ hyperparams:
   attn_dim: 64
   attn_depth: 3
   attn_heads: 6
+  apply_attn: false

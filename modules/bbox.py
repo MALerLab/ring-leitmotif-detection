@@ -9,7 +9,7 @@ class BBoxModel(CNNModel):
     """
     def __init__(self,
                  num_classes=21,
-                 duration_samples = 646,
+                 duration_samples=646,
                  apply_attn=True,
                  attn_dim=64,
                  attn_depth=3,
