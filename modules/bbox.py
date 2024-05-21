@@ -23,7 +23,8 @@ class BBoxModel(CNNModel):
                                 heads=attn_heads,
                                 attn_dropout=0.2,
                                 ff_dropout=0.2)
-        self.proj = nn.Linear(attn_dim*duration_samples, num_classes*2)
+        self.class_proj = nn.Linear(attn_dim*duration_samples, num_classes)
+        self.bbox_proj = nn.Linear(attn_dim*duration_samples, num_classes*2)
     
     def forward(self, x):
         cqt = self.transform(x)
@@ -33,6 +34,7 @@ class BBoxModel(CNNModel):
             out = out + self.pos_enc(out)
             out = self.encoder(out)
         out = out.flatten(1, 2)
-        bbox_pred = self.proj(out)
+        class_pred = self.class_proj(out).sigmoid()
+        bbox_pred = self.bbox_proj(out)
         bbox_pred = bbox_pred.reshape(bbox_pred.shape[0], -1, 2)
-        return bbox_pred
+        return class_pred, bbox_pred

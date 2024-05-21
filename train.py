@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 import wandb
 from dataset import OTFDataset, Subset, collate_fn
 from modules import CNNModel, CRNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
-from data_utils import get_binary_f1, get_boundaries, diou_loss
+from data_utils import get_binary_f1, get_boundaries, get_diou_loss
 import constants as C
 
 class Trainer:
@@ -20,6 +20,7 @@ class Trainer:
         self.device = device
         self.cfg = cfg
         self.hyperparams = hyperparams
+        self.ce = torch.nn.CrossEntropyLoss()
         self.bce = torch.nn.BCELoss()
         self.cur_epoch = 0
         self.ckpt_dir = Path(f"checkpoints/{self.cfg.model}")
@@ -80,10 +81,15 @@ class Trainer:
                     gt = gt[torch.arange(gt.shape[0]), :, labels]
                     loss = self.bce(pred, gt)
                 elif self.cfg.model == "BBox":
-                    pred = self.model(wav)
-                    pred = pred.reshape(-1, 2)
-                    gt = get_boundaries(gt, device=self.device)
-                    loss, iou = diou_loss(pred, gt)
+                    class_pred, bbox_pred = self.model(wav)
+                    bbox_pred = bbox_pred.reshape(-1, 2)
+                    class_gt, bbox_gt = get_boundaries(gt, device=self.device)
+                    mask = class_gt.reshape(-1)
+                    class_loss = self.ce(class_pred, class_gt.float()) * 0.25
+                    loss = class_loss
+                    if mask.sum() > 0:
+                        diou_loss, iou = get_diou_loss(bbox_pred[mask, :], bbox_gt[mask, :])
+                        loss += diou_loss
                 else:
                     pred = self.model(wav)
                     loss = self.bce(pred, gt)
@@ -96,6 +102,9 @@ class Trainer:
                 if self.cfg.log_to_wandb:
                     if self.cfg.model == "BBox":
                         wandb.log({"train/loss": loss.item(), "train/iou": iou}, step=num_iter)
+                        wandb.log({"train/class_loss": class_loss.item()}, step=num_iter)
+                        if mask.sum() > 0:
+                            wandb.log({"train/diou_loss": diou_loss.item()}, step=num_iter)
                     else:
                         f1, precision, recall = get_binary_f1(pred, gt, 0.5)
                         wandb.log({"train/loss": loss.item(), "train/precision": precision, "train/recall": recall, "train/f1": f1}, step=num_iter)
@@ -106,7 +115,8 @@ class Trainer:
             self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
-                total_f1, total_p, total_r, total_iou = 0, 0, 0, 0
+                total_f1, total_p, total_r = 0, 0, 0, 
+                total_class_loss, total_diou_loss, total_iou = 0, 0, 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
                     wav, gt = batch
                     wav = wav.to(self.device)
@@ -118,10 +128,15 @@ class Trainer:
                         gt = gt[torch.arange(gt.shape[0]), :, labels]
                         loss = self.bce(pred, gt)
                     elif self.cfg.model == "BBox":
-                        pred = self.model(wav)
-                        pred = pred.reshape(-1, 2)
-                        gt = get_boundaries(gt, device=self.device)
-                        loss, iou = diou_loss(pred, gt)
+                        class_pred, bbox_pred = self.model(wav)
+                        bbox_pred = bbox_pred.reshape(-1, 2)
+                        class_gt, bbox_gt = get_boundaries(gt, device=self.device)
+                        mask = class_gt.reshape(-1)
+                        class_loss = self.ce(class_pred, class_gt.float()) * 0.25
+                        loss = class_loss
+                        if mask.sum() > 0:
+                            diou_loss, iou = get_diou_loss(bbox_pred[mask, :], bbox_gt[mask, :])
+                            loss += diou_loss
                     else:
                         pred = self.model(wav)
                         loss = self.bce(pred, gt)
@@ -129,6 +144,10 @@ class Trainer:
                     total_loss += loss.item()
                     if self.cfg.log_to_wandb:
                         if self.cfg.model == "BBox":
+                            total_class_loss += class_loss.item()
+                            if mask.sum() > 0:
+                                total_diou_loss += diou_loss.item()
+                                total_iou += iou
                             total_iou += iou
                         else:
                             f1, p, r = get_binary_f1(pred, gt, 0.5)
@@ -139,8 +158,12 @@ class Trainer:
                 avg_loss = total_loss / len(self.valid_loader)
                 if self.cfg.log_to_wandb:
                     if self.cfg.model == "BBox":
+                        avg_class_loss = total_class_loss / len(self.valid_loader)
+                        avg_diou_loss = total_diou_loss / len(self.valid_loader)
                         avg_iou = total_iou / len(self.valid_loader)
                         wandb.log({"valid/loss": avg_loss, "valid/iou": avg_iou}, step=num_iter)
+                        wandb.log({"valid/class_loss": avg_class_loss}, step=num_iter)
+                        wandb.log({"valid/diou_loss": avg_diou_loss}, step=num_iter)
                     else:
                         p = total_p / len(self.valid_loader)
                         r = total_r / len(self.valid_loader)

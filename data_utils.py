@@ -110,16 +110,17 @@ def get_multiclass_acc(pred, gt):
 def get_boundaries(gt, none_start=-100, none_end=-90, device='cuda'):    
     '''
     Input: (batch, Time, Classes)
-    Output: ((Batch * Classes), 2)
+    Output: Class[bool] (Batch, Classes), Boundaries ((Batch * Classes), 2)
     '''
+    classes_gt = gt.sum(dim=1) > 0 # (batch, classes)
     gt = gt.transpose(1, 2).reshape(-1, gt.shape[1]) # (batch * classes, time)
-    out = torch.tensor([none_start, none_end]).repeat(gt.shape[0], 1).to(device) # (batch * classes, 2)
+    boundaries = torch.tensor([none_start, none_end]).repeat(gt.shape[0], 1).to(device) # (batch * classes, 2)
     for i in range(gt.shape[1]):
-        out[:, 0][torch.logical_and(gt[:, i] > 0, out[:, 0] < 0)] = i
-        out[:, 1][torch.logical_and(gt[:, i] > 0, out[:, 0] >= 0)] = i
-    return out
+        boundaries[:, 0][torch.logical_and(gt[:, i] > 0, boundaries[:, 0] < 0)] = i
+        boundaries[:, 1][torch.logical_and(gt[:, i] > 0, boundaries[:, 0] >= 0)] = i
+    return classes_gt, boundaries
 
-def diou_loss(pred, gt):
+def get_diou_loss(pred, gt):
     pred_start, pred_end = pred[:, 0], pred[:, 1]
     gt_start, gt_end = gt[:, 0], gt[:, 1]
 
@@ -149,8 +150,23 @@ idx2motif = [
     'Nibelungen',
     'Ring',
     'Nibelungenhass',
+    # 'Mime',
+    'Ritt',
     'Waldweben',
-    'Horn'
+    'Waberlohe',
+    'Horn',
+    # 'Geschwisterliebe',
+    'Schwert',
+    # 'Jugendkraft',
+    'Walhall-b',
+    # 'Riesen',
+    'Feuerzauber',
+    # 'Schicksal',
+    'Unmuth',
+    # 'Liebe',
+    'Siegfried',
+    # 'Mannen',
+    'Vertrag'
 ]
 
 motif2idx = {x: i for i, x in enumerate(idx2motif)}

@@ -102,7 +102,7 @@ def infer_cnnattn(model, cqt, duration_samples=646, overlap=236, num_classes=21)
 
 def infer_bbox(model, cqt, duration_samples=646, overlap=440, num_classes=21):
     increment = duration_samples - overlap
-    leitmotif_out = torch.zeros((cqt.shape[0], num_classes))
+    leitmotif_out = torch.zeros((cqt.shape[0], num_classes)).to(cqt.device)
     for i in tqdm(range(0, cqt.shape[0], increment), leave=False, ascii=True):
         x = cqt[i:i+duration_samples, :]
         if x.shape[0] <= overlap//2:
@@ -116,7 +116,8 @@ def infer_bbox(model, cqt, duration_samples=646, overlap=440, num_classes=21):
             out = out + model.pos_enc(out)
             out = model.encoder(out)
         out = out.flatten(1, 2)
-        bbox_pred = model.proj(out)
+        class_pred = model.class_proj(out).sigmoid().squeeze(0)
+        bbox_pred = model.bbox_proj(out)
         bbox_pred = bbox_pred.reshape(bbox_pred.shape[0], -1, 2).squeeze(0)
         bbox_pred = torch.round(bbox_pred)
 
@@ -126,7 +127,7 @@ def infer_bbox(model, cqt, duration_samples=646, overlap=440, num_classes=21):
             start, end = bbox_pred[j, :]
             start = int(torch.clamp(start, 0, duration_samples).item())
             end = int(torch.clamp(end, 0, duration_samples).item())
-            leitmotif_out[i+start:i+end, j] += 1
+            leitmotif_out[i+start:i+end, j] += class_pred[j]
         
     leitmotif_out = leitmotif_out / leitmotif_out.max()
     return leitmotif_out
@@ -266,10 +267,16 @@ def main(config: DictConfig):
     leitmotif_preds = torch.cat(leitmotif_preds, dim=0)
     leitmotif_gts = torch.cat(leitmotif_gts, dim=0)
 
+    torch.save(leitmotif_preds, "bbox-pred.pt")
+    torch.save(leitmotif_gts, "bbox-gt.pt")
+
     # Maximum filtering
     pool = torch.nn.MaxPool1d(kernel_size=cfg.discretization, stride=1, padding=cfg.discretization//2)
     leitmotif_preds = pool(leitmotif_preds.T).T
     leitmotif_gts = pool(leitmotif_gts.T).T
+
+    torch.save(leitmotif_preds, "bbox-pred-max.pt")
+    torch.save(leitmotif_gts, "bbox-gt-max.pt")
 
     print("Performing threshold grid search...")
     # Threshold grid search
