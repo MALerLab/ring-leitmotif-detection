@@ -1,0 +1,3 @@
+[submodule "timbre-trap"]
+	path = timbre-trap
+	url = https://github.com/sony/timbre-trap.git
