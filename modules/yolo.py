@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 
 
+anchors = torch.tensor([1, 1, 1])
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding=0):
         super().__init__()
@@ -59,35 +61,140 @@ class YOLO(nn.Module):
         return self.mlp(x)
     
 class YOLOLoss(nn.Module):
-    def __init__(self, B=3, C=20, lambda_coord=5, lambda_noobj=0.5):
-        super().__init__()
-        self.B = B
-        self.C = C
-        self.num_final_channels = (3 * self.B) + self.C
-        self.lambda_coord = lambda_coord
-        self.lambda_noobj = lambda_noobj
+    """
+    1-dimensional YOLO-like loss
 
-        self.x_selector = torch.tensor([0 + 3 * i for i in range(self.B)])
-        self.w_selector = torch.tensor([1 + 3 * i for i in range(self.B)])
-        self.conf_selector = torch.tensor([2 + 3 * i for i in range(self.B)])
+    Shapes:
+        pred: (batch, num_anchors, S=11, 3[p_o, x, w] + C)
+        gt:   (batch, num_anchors, S=11, 4[p_o, x, w, class_idx])
+    """
+    def __init__(self,
+                 anchors,
+                 lambda_class=1,
+                 lambda_noobj=1,
+                 lambda_obj=10,
+                 lambda_coord=10):
+        super().__init__()
+        self.lambda_class = lambda_class
+        self.lambda_noobj = lambda_noobj
+        self.lambda_obj = lambda_obj
+        self.lambda_coord = lambda_coord
+        self.anchors = anchors
+
+        self.bce = nn.BCELoss()
+        self.mse = nn.MSELoss()
+        self.ce = nn.CrossEntropyLoss()
+        self.sigmoid = nn.Sigmoid()
+
+    def get_iou(self, pred, gt):
+        """
+        1-dimensional Intersection over Union
+        Args:
+            pred: (..., 2)
+            gt: (..., 2)
+
+        Returns:
+            (..., 1)
+        """
+        pred_x, pred_w = pred[..., 0:1], pred[..., 1:2]
+        gt_x, gt_w = gt[..., 0:1], gt[..., 1:2]
+
+        pred_x1 = pred_x - pred_w / 2
+        pred_x2 = pred_x + pred_w / 2
+        gt_x1 = gt_x - gt_w / 2
+        gt_x2 = gt_x + gt_w / 2
+
+        x1 = torch.minimum(pred_x1, gt_x1)
+        x2 = torch.maximum(pred_x2, gt_x2)
+
+        intersection = torch.clamp(x2 - x1, min=0)
+        union = pred_w + gt_w - intersection
+
+        return intersection / (union + 1e-16)
         
     def forward(self, pred, gt):
-        """
-        pred, gt: (batch, S=11, 3B + C)
-        """
+        obj_mask = gt[..., 0] == 1
+        noobj_mask = gt[..., 0] == 0
 
-        x_pred, x_gt = pred[:, :, self.x_selector], gt[:, :, self.x_selector]
-        w_pred, w_gt = pred[:, :, self.w_selector], gt[:, :, self.w_selector]
-        conf_pred, conf_gt = pred[:, :, self.conf_selector], gt[:, :, self.conf_selector]
-        class_pred, class_gt = pred[:, :, 3 * self.B:], gt[:, :, 3 * self.B:]
+        # NoObject Loss
+        loss_noobj = self.bce(pred[..., 0:1][noobj_mask], gt[..., 0:1][noobj_mask])
 
-        # ij-mask
-        ij_mask = conf_gt > 0
-        x_pred[conf_gt == 0] = 0
-        w_pred[conf_gt == 0] = 0
+        # Object Loss
+        anchors = self.anchors.reshape(1, 3, 1, 1)
+        print(self.sigmoid(pred[..., 1:2]).shape)
+        print((torch.exp(pred[..., 2:3]) * anchors).shape)
+        boundaries_pred = torch.cat([self.sigmoid(pred[..., 1:2]), torch.exp(pred[..., 2:3]) * anchors], dim=-1) # (batch, num_anchors, S, 2)
+        ious = self.get_iou(boundaries_pred[obj_mask], gt[..., 1:3][obj_mask]).detach()
+        print(ious)
+        loss_obj = self.mse(self.sigmoid(pred[..., 0:1][obj_mask]), ious * gt[..., 0:1][obj_mask])
 
-        
+        # Coordinate Loss
+        pred[obj_mask][..., 1:2] = self.sigmoid(pred[obj_mask][..., 1:2]) # x
+        gt[..., 2:3] = torch.log(1e-16 + gt[..., 2:3] / anchors) # w
+        loss_coord = self.mse(pred[..., 1:3][obj_mask], gt[..., 1:3][obj_mask])
+ 
+        # Class Loss
+        print(pred[..., 3:][obj_mask].shape, gt[..., 3][obj_mask].long().shape)
+        loss_class = self.ce(pred[..., 3:][obj_mask], gt[..., 3][obj_mask].long())
 
+        return (
+            self.lambda_noobj * loss_noobj + 
+            self.lambda_obj * loss_obj + 
+            self.lambda_coord * loss_coord + 
+            self.lambda_class * loss_class,
+            {
+                "noobj": loss_noobj,
+                "obj": loss_obj,
+                "coord": loss_coord,
+                "class": loss_class
+            }
+        )
 
-
-        return loss_boxes + loss_classes
+if __name__ == "__main__":
+    loss = YOLOLoss(anchors)
+    pred = torch.tensor(
+        [
+            [
+                [100, 0, 0, 100, 0, 0],
+                [0, 0, 0, 0, 100, 0],
+                [0, 0, 0, 100, 0, 0],
+                [100, 0, 0, 0, 100, 0]
+            ],
+            [
+                [100, 0, 0, 100, 0, 0],
+                [0, 0, 0, 0, 100, 0],
+                [0, 0, 0, 100, 0, 0],
+                [100, 0, 0, 0, 100, 0]
+            ],
+            [
+                [100, 0, 0, 100, 0, 0],
+                [0, 0, 0, 0, 100, 0],
+                [0, 0, 0, 100, 0, 0],
+                [100, 0, 0, 0, 100, 0]
+            ]
+        ]
+    ).unsqueeze(0).float()
+    gt = torch.tensor(
+        [
+            [
+                [1, 0, 2, 0],
+                [0, 0, 2, 1],
+                [0, 0, 2, 0],
+                [1, 0, 2, 1]
+            ],
+            [
+                [1, 0, 2, 0],
+                [0, 0, 2, 1],
+                [0, 0, 2, 0],
+                [1, 0, 2, 1]
+            ],
+            [
+                [1, 0, 2, 0],
+                [0, 0, 2, 1],
+                [0, 0, 2, 0],
+                [1, 0, 2, 1]
+            ]
+        ]
+    ).unsqueeze(0).float()
+    print(pred.shape, gt.shape)
+    print(loss(pred, gt))
