@@ -17,7 +17,7 @@ class ConvBlock(nn.Module):
 class MLP(nn.Module):
     def __init__(self, in_features, hidden, out_features):
         super().__init__()
-        mlp = nn.Sequential(
+        self.mlp = nn.Sequential(
             nn.Linear(in_features, hidden),
             nn.LeakyReLU(0.1),
             nn.Dropout(0.5),
@@ -98,7 +98,6 @@ class YOLOLoss(nn.Module):
         """
         pred_x, pred_w = pred[..., 0:1], pred[..., 1:2]
         gt_x, gt_w = gt[..., 0:1], gt[..., 1:2]
-        print(pred_x, gt_x)
 
         pred_x1 = pred_x - pred_w / 2
         pred_x2 = pred_x + pred_w / 2
