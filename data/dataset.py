@@ -4,7 +4,7 @@ import random
 import pandas as pd
 import torch
 from tqdm.auto import tqdm
-from .data_utils import (
+from data_utils import (
     sample_instance_intervals,
     generate_non_overlapping_intervals, 
     sample_non_overlapping_interval
@@ -280,10 +280,13 @@ class YOLODataset:
             valid_versions,
             train_acts,
             valid_acts,
+            idx2motif,
+            anchors,
             duration_sec=15,
             overlap_sec=3,
             include_threshold=0.5,
             max_none_samples=3000,
+            S=11,
             split="version",
             mixup_prob=0,
             mixup_alpha=0,
@@ -294,7 +297,9 @@ class YOLODataset:
         self.valid_versions = valid_versions
         self.train_acts = train_acts
         self.valid_acts = valid_acts
-        self.split = split
+        self.idx2motif = idx2motif
+        self.motif2idx = {x: i for i, x in enumerate(idx2motif)}
+        self.anchors = anchors
         self.wav_fns = sorted(list(wav_path.glob("*.pt")))
         self.stems = [x.stem for x in self.wav_fns]
         self.instances_path = instances_path
@@ -302,10 +307,13 @@ class YOLODataset:
         self.increment_sec = duration_sec - overlap_sec
         self.include_threshold = include_threshold
         self.max_none_samples = max_none_samples
+        self.S = S
+        self.split = split
         self.mixup_prob = mixup_prob
         self.cur_mixup_prob = mixup_prob
         self.mixup_alpha = mixup_alpha
         self.device = device
+        self.grid_w = 1 / S
 
         self.wavs = {}
         self.samples = []
@@ -317,7 +325,7 @@ class YOLODataset:
             version = fn.stem.split("_")[0]
             act = fn.stem.split("_")[1]
 
-            # Load waveform
+            # Load waveform and instance list
             with open(fn, "rb") as f:
                 self.wavs[fn.stem] = torch.load(f)
             length_sec = self.wavs[fn.stem].shape[0] / 22050
@@ -325,34 +333,81 @@ class YOLODataset:
                 instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
             instances.sort(key=lambda x: x[1])
 
+            # Slice instances and create ground truth tensors
             for i in range(0, math.floor(length_sec), self.increment_sec):
                 start, end = i, i + duration_sec
                 if end > length_sec:
                     break
-                inst = []
+                gt = torch.zeros((len(self.anchors), self.S, 4))
+
+                contains_instance = False
                 for instance in instances:
                     if instance[2] < start: continue
                     if instance[1] > end: break
+                    if instance[0] not in self.idx2motif: continue
                     fragment_length = min(end, instance[2]) - max(start, instance[1])
                     if fragment_length / (instance[2] - instance[1]) > include_threshold:
-                        inst.append(instance)
-
-
+                        contains_instance = True
+                        fragment_start = (max(start, instance[1]) - start) / self.duration_sec
+                        fragment_end = (min(end, instance[2]) - start) / self.duration_sec
+                        midpoint = (fragment_start + fragment_end) / 2
+                        grid_idx = int(midpoint // self.grid_w)
+                        midpoint_remainder = midpoint % self.grid_w
+                        anchors_moved = [(midpoint - (0.5 * anchor), midpoint + (0.5 * anchor)) for anchor in self.anchors]
+                        ious = [self.iou_start_end((fragment_start, fragment_end), anchor) for anchor in anchors_moved]
+                        iou_rank = self.argsort(ious)
+                        for anchor_idx in iou_rank:
+                            if gt[anchor_idx, grid_idx, 0] == 1: continue
+                            gt[anchor_idx, grid_idx, 0] = 1
+                            gt[anchor_idx, grid_idx, 1] = midpoint_remainder / self.grid_w
+                            gt[anchor_idx, grid_idx, 2] = (fragment_end - fragment_start) / self.anchors[anchor_idx]
+                            gt[anchor_idx, grid_idx, 3] = self.motif2idx[instance[0]]
+                            break
+                
+                if contains_instance:
+                    self.samples.append((fn.stem, start*22050, end*22050, gt))
+                else:
+                    self.none_samples.append((fn.stem, start*22050, end*22050, gt))
+            break
 
             
-            for instance in instances:
-                motif = instance[0]
-                if motif not in self.idx2motif:
-                    continue
-                start = instance[1]
-                end = instance[2]
-                start_idx = int(round(start * 22050 / 512))
-                end_idx = int(round(end * 22050 / 512))
-                motif_idx = self.motif2idx[motif]
-                self.instances_gts[fn.stem][start_idx:end_idx, motif_idx] = 1
+    def iou_start_end(self, b1:tuple, b2:tuple):
+        start1, end1 = b1
+        start2, end2 = b2
+        intersection = max(0, min(end1, end2) - max(start1, start2))
+        union = (end1 - start1) + (end2 - start2) - intersection
+        return intersection / (union + 1e-16)
+    
+    def argsort(self, seq):
+        return sorted(range(len(seq)), key=lambda x: seq[x], reverse=True)
+    
 
-            if include_none_class:
-                # Add "none" class to ground truth
-                self.instances_gts[fn.stem][:, -1] = 1 - self.instances_gts[fn.stem][:, :-1].max(dim=1).values
-
-        self.sample_intervals()
+if __name__ == "__main__":
+    dummy_anchors = [0.1, 0.2, 0.5]
+    dataset = YOLODataset(
+        Path("./wav-22050"),
+        Path("./LeitmotifOccurrencesInstances/Instances"),
+        ["A", "B"],
+        ["C"],
+        ["D"],
+        ["E"],
+        [
+            'Nibelungen',
+            'Ring',
+            'Nibelungenhass',
+            'Ritt',
+            'Waldweben',
+            'Waberlohe',
+            'Horn',
+            'Schwert',
+            'Walhall-b',
+            'Feuerzauber',
+            'Unmuth',
+            'Siegfried',
+            'Vertrag'
+        ],
+        dummy_anchors
+    )
+    print(dataset.samples[0])
+    print(len(dataset.samples))
+    print(len(dataset.none_samples))
