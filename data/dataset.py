@@ -4,14 +4,11 @@ import random
 import pandas as pd
 import torch
 from tqdm.auto import tqdm
-from data_utils import (
+from .data_utils import (
     sample_instance_intervals,
     generate_non_overlapping_intervals, 
-    sample_non_overlapping_interval,
-    idx2motif,
-    motif2idx,
+    sample_non_overlapping_interval
 )
-import constants as C
 
 class OTFDataset:
     '''
@@ -20,7 +17,12 @@ class OTFDataset:
     def __init__(
             self,
             wav_path:Path,
-            instances_path: Path,
+            instances_path:Path,
+            train_versions,
+            valid_versions,
+            train_acts,
+            valid_acts,
+            idx2motif,
             include_none_class=False,
             max_none_samples=3000,
             duration_sec=15,
@@ -31,6 +33,12 @@ class OTFDataset:
             device = "cuda"
     ):
         assert split in ["version", "act"]
+        self.train_versions = train_versions
+        self.valid_versions = valid_versions
+        self.train_acts = train_acts
+        self.valid_acts = valid_acts
+        self.idx2motif = idx2motif
+        self.motif2idx = {x: i for i, x in enumerate(idx2motif)}
         self.max_none_samples = max_none_samples
         self.split = split
         self.wav_fns = sorted(list(wav_path.glob("*.pt")))
@@ -47,7 +55,7 @@ class OTFDataset:
         self.instances_gts = {}
         self.samples = []
         self.none_samples = []
-        self.num_classes = len(idx2motif) + 1 if include_none_class else len(idx2motif)
+        self.num_classes = len(self.idx2motif) + 1 if include_none_class else len(self.idx2motif)
 
         print("Loading data...")
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
@@ -65,13 +73,13 @@ class OTFDataset:
                 instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
             for instance in instances:
                 motif = instance[0]
-                if motif not in idx2motif:
+                if motif not in self.idx2motif:
                     continue
                 start = instance[1]
                 end = instance[2]
                 start_idx = int(round(start * 22050 / 512))
                 end_idx = int(round(end * 22050 / 512))
-                motif_idx = motif2idx[motif]
+                motif_idx = self.motif2idx[motif]
                 self.instances_gts[fn.stem][start_idx:end_idx, motif_idx] = 1
 
             if include_none_class:
@@ -87,7 +95,7 @@ class OTFDataset:
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
             instances = list(pd.read_csv(
                 self.instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
-            instances = [x for x in instances if x[0] in idx2motif]
+            instances = [x for x in instances if x[0] in self.idx2motif]
             total_duration = self.wavs[fn.stem].shape[0] // 22050
 
             # Sample leitmotif instances
@@ -126,11 +134,11 @@ class OTFDataset:
         self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
         # Create none sample index lookup table
         self.none_samples_by_version = {}
-        for version in C.TRAIN_VERSIONS + C.VALID_VERSIONS:
+        for version in self.train_versions + self.valid_versions:
             self.none_samples_by_version[version] = [idx for (idx, x) in enumerate(
                 self.none_samples) if x[0] == version]
         self.none_samples_by_act = {}
-        for act in C.TRAIN_ACTS + C.VALID_ACTS:
+        for act in self.train_acts + self.valid_acts:
             self.none_samples_by_act[act] = [idx for (idx, x) in enumerate(
                 self.none_samples) if x[1] == act]
 
@@ -262,3 +270,89 @@ def collate_fn(batch):
     wav = torch.stack(wav)
     leitmotif_gt = torch.stack(leitmotif_gt)
     return wav, leitmotif_gt
+
+class YOLODataset:
+    def __init__(
+            self,
+            wav_path:Path,
+            instances_path:Path,
+            train_versions,
+            valid_versions,
+            train_acts,
+            valid_acts,
+            duration_sec=15,
+            overlap_sec=3,
+            include_threshold=0.5,
+            max_none_samples=3000,
+            split="version",
+            mixup_prob=0,
+            mixup_alpha=0,
+            device = "cuda"
+    ):
+        assert split in ["version", "act"]
+        self.train_versions = train_versions
+        self.valid_versions = valid_versions
+        self.train_acts = train_acts
+        self.valid_acts = valid_acts
+        self.split = split
+        self.wav_fns = sorted(list(wav_path.glob("*.pt")))
+        self.stems = [x.stem for x in self.wav_fns]
+        self.instances_path = instances_path
+        self.duration_sec = duration_sec
+        self.increment_sec = duration_sec - overlap_sec
+        self.include_threshold = include_threshold
+        self.max_none_samples = max_none_samples
+        self.mixup_prob = mixup_prob
+        self.cur_mixup_prob = mixup_prob
+        self.mixup_alpha = mixup_alpha
+        self.device = device
+
+        self.wavs = {}
+        self.samples = []
+        self.none_samples = []
+        self.num_classes = len(self.idx2motif)
+
+        print("Loading data...")
+        for fn in tqdm(self.wav_fns, leave=False, ascii=True):
+            version = fn.stem.split("_")[0]
+            act = fn.stem.split("_")[1]
+
+            # Load waveform
+            with open(fn, "rb") as f:
+                self.wavs[fn.stem] = torch.load(f)
+            length_sec = self.wavs[fn.stem].shape[0] / 22050
+            instances = list(pd.read_csv(
+                instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
+            instances.sort(key=lambda x: x[1])
+
+            for i in range(0, math.floor(length_sec), self.increment_sec):
+                start, end = i, i + duration_sec
+                if end > length_sec:
+                    break
+                inst = []
+                for instance in instances:
+                    if instance[2] < start: continue
+                    if instance[1] > end: break
+                    fragment_length = min(end, instance[2]) - max(start, instance[1])
+                    if fragment_length / (instance[2] - instance[1]) > include_threshold:
+                        inst.append(instance)
+
+
+
+            
+            for instance in instances:
+                motif = instance[0]
+                if motif not in self.idx2motif:
+                    continue
+                start = instance[1]
+                end = instance[2]
+                start_idx = int(round(start * 22050 / 512))
+                end_idx = int(round(end * 22050 / 512))
+                motif_idx = self.motif2idx[motif]
+                self.instances_gts[fn.stem][start_idx:end_idx, motif_idx] = 1
+
+            if include_none_class:
+                # Add "none" class to ground truth
+                self.instances_gts[fn.stem][:, -1] = 1 - self.instances_gts[fn.stem][:, :-1].max(dim=1).values
+
+        self.sample_intervals()

@@ -5,9 +5,9 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
-from dataset import OTFDataset, Subset, collate_fn
+from data.dataset import OTFDataset, Subset, collate_fn
 from modules import CNNModel, CRNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
-from data_utils import get_binary_f1, get_boundaries, get_diou_loss
+from data.data_utils import get_binary_f1, get_boundaries, get_diou_loss
 import constants as C
 
 class Trainer:
@@ -195,6 +195,11 @@ def main(config: DictConfig):
     random.seed(cfg.random_seed)
     base_set = OTFDataset(Path("data/wav-22050"), 
                           Path("data/LeitmotifOccurrencesInstances/Instances"),
+                          C.TRAIN_VERSIONS,
+                          C.VALID_VERSIONS,
+                          C.TRAIN_ACTS,
+                          C.VALID_ACTS,
+                          C.MOTIFS,
                           include_none_class = hyperparams.include_none_class,
                           split = cfg.split,
                           mixup_prob = hyperparams.mixup_prob,

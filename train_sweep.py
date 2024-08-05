@@ -5,9 +5,9 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 import yaml
-from dataset import OTFDataset, Subset, collate_fn
+from data.dataset import OTFDataset, Subset, collate_fn
 from modules.baselines import RNNModel, CNNModel
-from data_utils import get_binary_f1, get_multiclass_acc
+from data.data_utils import get_binary_f1, get_multiclass_acc
 import constants as C
 
 class Trainer:
