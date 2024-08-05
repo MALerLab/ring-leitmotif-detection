@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-anchors = torch.tensor([1, 1, 1])
+anchors = torch.tensor([0.1, 0.2, 0.5]) # dummy data
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding=0):
@@ -15,23 +15,32 @@ class ConvBlock(nn.Module):
         return self.relu(self.bn(self.conv(x)))
     
 class MLP(nn.Module):
-    def __init__(self, in_features, hidden, out_features):
+    """
+    Input:
+        (batch, in_features, S, 1)
+
+    Output:
+        (batch, num_anchors, S, 3+C)
+    """
+    def __init__(self, in_features, hidden, num_anchors, C):
         super().__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(in_features, hidden),
-            nn.LeakyReLU(0.1),
-            nn.Dropout(0.5),
-            nn.Linear(hidden, out_features),
-            nn.Sigmoid()
-        )
+        self.num_anchors = num_anchors
+        self.C = C
+        self.fc = nn.Linear(in_features, hidden)
+        self.relu = nn.LeakyReLU(0.1)
+        self.fc2 = nn.Linear(hidden, num_anchors * (3 + C))
 
     def forward(self, x):
-        return self.mlp(x)
+        assert len(x.shape) == 4 and x.shape[3] == 1
+        x = x.permute(0, 2, 3, 1).squeeze(2)
+        x = self.fc2(self.relu(self.fc(x)))
+        x = x.reshape(x.shape[0], x.shape[1], self.num_anchors, -1)
+        return x.permute(0, 2, 1, 3)
 
 class YOLO(nn.Module):
     """
     Forward input:
-        (batch, 1, 646, 128)
+        (batch, 1, 646, 84)
     
     Forward output:
         (batch, S=11, 3B + C)
@@ -51,13 +60,12 @@ class YOLO(nn.Module):
             ConvBlock(128, 64, (1, 1), 1, 0), # reduce
             ConvBlock(64, 128, (3, 3), 2, 1),
             ConvBlock(128, 256, (3, 3), 2, 1),
-            ConvBlock(256, 512, (3, 3), 2, 1)
+            ConvBlock(256, 512, (3, 3), 1, (1, 0))
         )
         self.mlp = MLP(512, 512, self.num_final_channels)
 
     def forward(self, x):
         x = self.stack(x)
-        x = x.permute(0, 2, 3, 1).squeeze(1)
         return self.mlp(x)
     
 class YOLOLoss(nn.Module):
@@ -147,6 +155,7 @@ class YOLOLoss(nn.Module):
         )
 
 if __name__ == "__main__":
+    anchors = torch.tensor([1, 1, 1])
     loss = YOLOLoss(anchors)
     pred = torch.tensor(
         [
