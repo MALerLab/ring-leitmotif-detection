@@ -6,8 +6,8 @@ from nnAudio.features.cqt import CQT1992v2
 import hydra
 from omegaconf import DictConfig
 from tqdm.auto import tqdm
-from dataset import OTFDataset
-from data_utils import get_binary_f1, id2version, idx2motif
+from data.dataset import OTFDataset
+from data.data_utils import get_binary_f1, id2version, idx2motif
 from modules import CNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
 import constants as C
 
