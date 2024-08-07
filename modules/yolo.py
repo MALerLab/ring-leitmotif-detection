@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 
 
-anchors = torch.tensor([0.1, 0.2, 0.5]) # dummy data
-
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding=0):
         super().__init__()
