@@ -1,0 +1,24 @@
+random_seed: 1204
+save_checkpoint: true
+load_checkpoint: null
+debug: false
+
+batch_size: 32
+lr: 1e-5
+weight_decay: 1e-4
+
+dataset:
+  wav_dir: data/wav-22050
+  instances_dir: data/LeitmotifOccurrencesInstances/Instances
+  split: version
+  mixup_prob: 0
+  mixup_alpha: 0
+
+trainer:
+  num_epochs: 800
+  patience: 300
+  wandb:
+    log_to_wandb: true
+    entity: maler
+    project: leitmotif-yolo
+    run_name: null

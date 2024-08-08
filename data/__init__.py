@@ -1,1 +1,1 @@
-from .dataset import OTFDataset, Subset, YOLODataset
+from .dataset import OTFDataset, YOLODataset, Subset, collate_fn
