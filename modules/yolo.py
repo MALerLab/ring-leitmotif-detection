@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from nnAudio.features.cqt import CQT1992v2
 
 
 class ConvBlock(nn.Module):
@@ -38,16 +39,18 @@ class MLP(nn.Module):
 class YOLO(nn.Module):
     """
     Forward input:
-        (batch, 1, 646, 84)
+        (batch, num_audio_samples)
     
     Forward output:
         (batch, S=11, 3B + C)
     """
-    def __init__(self, B=3, C=20):
+    def __init__(self, B=3, C=20, num_anchors=3):
         super().__init__()
         self.B = B
         self.C = C
         self.num_final_channels = (3 * self.B) + self.C
+
+        self.transform = CQT1992v2()
         self.stack = nn.Sequential(
             ConvBlock(1, 16, (7, 7), 2, 3),
             ConvBlock(16, 32, (3, 3), 2, 1),
@@ -60,9 +63,11 @@ class YOLO(nn.Module):
             ConvBlock(128, 256, (3, 3), 2, 1),
             ConvBlock(256, 512, (3, 3), 1, (1, 0))
         )
-        self.mlp = MLP(512, 512, self.num_final_channels)
+        self.mlp = MLP(512, 512, num_anchors, C)
 
     def forward(self, x):
+        x = self.transform(x)
+        x = (x / x.max()).transpose(1, 2).unsqueeze(1)
         x = self.stack(x)
         return self.mlp(x)
     
@@ -75,7 +80,7 @@ class YOLOLoss(nn.Module):
         gt:   (batch, num_anchors, S=11, 4[p_o, x, w, class_idx])
     """
     def __init__(self,
-                 anchors,
+                 anchors: torch.Tensor,
                  lambda_class=1,
                  lambda_noobj=1,
                  lambda_obj=10,
@@ -105,15 +110,15 @@ class YOLOLoss(nn.Module):
         pred_x, pred_w = pred[..., 0:1], pred[..., 1:2]
         gt_x, gt_w = gt[..., 0:1], gt[..., 1:2]
 
-        pred_x1 = pred_x - pred_w / 2
-        pred_x2 = pred_x + pred_w / 2
-        gt_x1 = gt_x - gt_w / 2
-        gt_x2 = gt_x + gt_w / 2
+        pred_x1 = pred_x - (pred_w / 2)
+        pred_x2 = pred_x + (pred_w / 2)
+        gt_x1 = gt_x - (gt_w / 2)
+        gt_x2 = gt_x + (gt_w / 2)
 
-        x1 = torch.minimum(pred_x1, gt_x1)
-        x2 = torch.maximum(pred_x2, gt_x2)
+        i_start = torch.maximum(pred_x1, gt_x1)
+        i_end = torch.minimum(pred_x2, gt_x2)
 
-        intersection = torch.clamp(x2 - x1, min=0)
+        intersection = torch.clamp(i_end - i_start, min=0)
         union = pred_w + gt_w - intersection
 
         return intersection / (union + 1e-16)
@@ -123,7 +128,18 @@ class YOLOLoss(nn.Module):
         noobj_mask = gt[..., 0] == 0
 
         # NoObject Loss
-        loss_noobj = self.bce(pred[..., 0:1][noobj_mask], gt[..., 0:1][noobj_mask])
+        loss_noobj = self.bce(self.sigmoid(pred[..., 0:1][noobj_mask]), gt[..., 0:1][noobj_mask])
+
+        if obj_mask.sum() == 0:
+            return (
+                self.lambda_noobj * loss_noobj,
+                {
+                    "noobj": loss_noobj,
+                    "obj": torch.tensor(0),
+                    "coord": torch.tensor(0),
+                    "class": torch.tensor(0)
+                }
+            )
 
         # Object Loss
         anchors = self.anchors.reshape(1, 3, 1, 1)

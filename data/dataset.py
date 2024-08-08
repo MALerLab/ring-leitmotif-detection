@@ -4,7 +4,7 @@ import random
 import pandas as pd
 import torch
 from tqdm.auto import tqdm
-from data_utils import (
+from .data_utils import (
     sample_instance_intervals,
     generate_non_overlapping_intervals, 
     sample_non_overlapping_interval
@@ -90,14 +90,14 @@ class OTFDataset:
         self.samples = []
         self.none_samples = []
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
+            version = fn.stem.split("_")[0]
+            act = fn.stem.split("_")[1]
             instances = list(pd.read_csv(
                 self.instances_path / f"P-{fn.stem.split('_')[0]}/{fn.stem.split('_')[1]}.csv", sep=";").itertuples(index=False, name=None))
             instances = [x for x in instances if x[0] in self.idx2motif]
             total_duration = self.wavs[fn.stem].shape[0] // 22050
 
             # Sample leitmotif instances
-            version = fn.stem.split("_")[0]
-            act = fn.stem.split("_")[1]
             samples_act = sample_instance_intervals(
                 instances, self.duration_sec, total_duration)
             # (version, act, motif, start_sec, end_sec)
@@ -282,7 +282,7 @@ class YOLODataset:
             duration_sec=15,
             overlap_sec=3,
             include_threshold=0.5,
-            max_none_samples=5000,
+            max_none_samples=3000,
             S=11,
             split="version",
             mixup_prob=0,
@@ -321,7 +321,11 @@ class YOLODataset:
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
             version = fn.stem.split("_")[0]
             act = fn.stem.split("_")[1]
-
+            if self.split == "version" and version not in self.train_versions + self.valid_versions:
+                continue
+            if self.split == "act" and act not in self.train_acts + self.valid_acts:
+                continue
+            
             # Load waveform and instance list
             with open(fn, "rb") as f:
                 self.wavs[fn.stem] = torch.load(f, weights_only=True)
@@ -362,13 +366,13 @@ class YOLODataset:
                             break
                 
                 if contains_instance:
-                    self.samples.append((fn.stem, start*22050, end*22050, gt))
+                    self.samples.append((version, act, start*22050, end*22050, gt))
                 else:
-                    self.none_samples.append((fn.stem, start*22050, end*22050, gt))
+                    self.none_samples.append((version, act, start*22050, end*22050, gt))
         
         print("Shuffling and truncating none samples...")
         random.shuffle(self.none_samples)
-        # self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
+        self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
 
         # Create none sample index lookup table
         self.none_samples_by_version = {}
@@ -379,6 +383,12 @@ class YOLODataset:
         for act in self.train_acts + self.valid_acts:
             self.none_samples_by_act[act] = [idx for (idx, x) in enumerate(
                 self.none_samples) if x[1] == act]
+            
+    def enable_mixup(self):
+        self.cur_mixup_prob = self.mixup_prob
+    
+    def disable_mixup(self):
+        self.cur_mixup_prob = 0
             
     def iou_start_end(self, b1:tuple, b2:tuple):
         start1, end1 = b1
@@ -414,25 +424,28 @@ class YOLODataset:
             none_samples = [idx + len(self.samples) for (idx, x) in enumerate(
                 self.none_samples) if x[0] in versions and x[1] in acts]
             return samples + none_samples
+        
+    def __len__(self):
+        return len(self.samples) + len(self.none_samples)
     
     def __getitem__(self, idx):
         if idx < len(self.samples):
-            fn, start, end, gt = self.samples[idx]
-            wav = self.wavs[fn][start:end]
+            version, act, start, end, gt = self.samples[idx]
+            wav = self.wavs[f"{version}_{act}"][start:end]
             if random.random() < self.cur_mixup_prob:
                 mixup_idx = 0
                 if self.split == "version":
-                    mixup_idx = random.choice(self.none_samples_by_version[fn.split("_")[0]])
+                    mixup_idx = random.choice(self.none_samples_by_version[version[0]])
                 else:
-                    mixup_idx = random.choice(self.none_samples_by_act[fn.split("_")[1]])
+                    mixup_idx = random.choice(self.none_samples_by_act[act("_")[1]])
                 mixup_fn, mixup_start, mixup_end, _ = self.none_samples[mixup_idx]
                 mixup_wav = self.wavs[mixup_fn][mixup_start:mixup_end]
                 wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
             return wav, gt
         else:
             idx -= len(self.samples)
-            fn, start, end, gt = self.none_samples[idx]
-            wav = self.wavs[fn][start:end]
+            version, act, start, end, gt = self.none_samples[idx]
+            wav = self.wavs[f"{version}_{act}"][start:end]
             return wav, gt
 
     
