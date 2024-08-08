@@ -2,8 +2,8 @@ from pathlib import Path
 import torchaudio
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
-from ..dataset import OTFDataset
-from ..data_utils import idx2motif
+from ..data.dataset import OTFDataset
+from ..data.data_utils import idx2motif
 
 def save_preview(dataset, sample, dir:Path, idx, duration_sec=15):
     if len(sample) == 5:
