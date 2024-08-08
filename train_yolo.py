@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm.auto import tqdm
 import wandb
 from data import YOLODataset, Subset, collate_fn
-from modules import YOLO, YOLOLoss
+from modules import YOLO, YOLOLoss, nms, get_acc
 import constants as C
 
 
@@ -29,7 +29,13 @@ class Trainer:
         self.valid_loader = valid_loader
         self.device = device
         self.cfg = cfg
-        self.loss = YOLOLoss(torch.tensor(C.ANCHORS).to(device))
+        self.loss = YOLOLoss(
+            torch.tensor(C.ANCHORS).to(device),
+            lambda_class = cfg.loss.lambda_class,
+            lambda_noobj = cfg.loss.lambda_noobj,
+            lambda_obj = cfg.loss.lambda_obj,
+            lambda_coord = cfg.loss.lambda_coord,
+        )
         self.cur_epoch = 0
         self.ckpt_dir = Path(f"checkpoints/YOLO")
         self.ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +74,10 @@ class Trainer:
         gt = gt.to(self.device)
         pred = self.model(wav)
         loss, loss_dict = self.loss(pred, gt)
-        return loss, loss_dict
+
+        suppressed_pred = nms(pred, torch.tensor(C.ANCHORS).to(self.device))
+        acc = get_acc(suppressed_pred, gt, torch.tensor(C.ANCHORS).to(self.device))
+        return loss, loss_dict, acc
 
     def train(self):
         if self.log_to_wandb:
@@ -86,11 +95,15 @@ class Trainer:
         best_ckpt_path = None
         last_ckpt_path = None
         for epoch in tqdm(range(self.cur_epoch, self.cfg.trainer.num_epochs), ascii=True):
+            if self.log_to_wandb:
+                wandb.log({"epoch": epoch}, step=num_iter)
             self.cur_epoch = epoch
             self.model.train()
             self.dataset.enable_mixup()
+            total_acc = 0
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
-                loss, loss_dict = self.step(batch)
+                loss, loss_dict, acc = self.step(batch)
+                total_acc += acc
                 self.optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
@@ -101,24 +114,33 @@ class Trainer:
                     wandb.log({f"train/{k}": v.item() for k, v in loss_dict.items()}, step=num_iter)
                 num_iter += 1
 
+            avg_acc = total_acc / len(self.train_loader)
+            if self.log_to_wandb:
+                wandb.log({"train/acc": avg_acc}, step=num_iter)
+
             self.model.eval()
             self.dataset.disable_mixup()
             with torch.inference_mode():
                 total_loss = 0
                 total_loss_items = [0, 0, 0, 0]
+                total_acc = 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
-                    loss, loss_dict = self.step(batch)
+                    loss, loss_dict, acc = self.step(batch)
                     total_loss += loss.item()
                     total_loss_items = [a + b.item() for a, b in zip(total_loss_items, loss_dict.values())]
+                    total_acc += acc
 
                 avg_loss = total_loss / len(self.valid_loader)
                 avg_loss_items = [a / len(self.valid_loader) for a in total_loss_items]
+                avg_acc = total_acc / len(self.valid_loader)
 
                 if self.log_to_wandb:
                     wandb.log({"valid/loss": avg_loss}, step=num_iter)
                     wandb.log({f"valid/{k}": v for k, v in zip(["noobj", "obj", "coord", "class"], avg_loss_items)}, step=num_iter)
+                    wandb.log({"valid/acc": avg_acc}, step=num_iter)
                     wandb.log({"valid/patience": self.patience}, step=num_iter)
 
+                # Save checkpoints
                 if avg_loss < best_valid_loss:
                     best_valid_loss = avg_loss
                     ckpt_path = self.ckpt_dir / f"{self.cfg.trainer.wandb.run_name}_best_epoch{self.cur_epoch}_{avg_loss:.4f}.pt"
@@ -208,7 +230,12 @@ def main(cfg: DictConfig):
         pin_memory_device=DEV
     )
 
-    model = YOLO(B=len(C.ANCHORS), C=len(C.MOTIFS))
+    model = YOLO(
+        num_anchors=len(C.ANCHORS), 
+        C=len(C.MOTIFS),
+        base_hidden=cfg.model.base_hidden,
+        dropout=cfg.model.dropout    
+    )
     
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     trainer = Trainer(model, optimizer, base_set, train_loader, valid_loader, DEV, cfg, log_to_wandb)
