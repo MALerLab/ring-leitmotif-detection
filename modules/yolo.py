@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from nnAudio.features.cqt import CQT1992v2
+from .yolo_utils import get_iou
 
 
 class ConvBlock(nn.Module):
@@ -21,18 +22,20 @@ class MLP(nn.Module):
     Output:
         (batch, num_anchors, S, 3+C)
     """
-    def __init__(self, in_features, hidden, num_anchors, C):
+    def __init__(self, in_features, hidden, num_anchors, C, dropout):
         super().__init__()
         self.num_anchors = num_anchors
         self.C = C
         self.fc = nn.Linear(in_features, hidden)
         self.relu = nn.LeakyReLU(0.1)
+        self.dropout = nn.Dropout(dropout)
         self.fc2 = nn.Linear(hidden, num_anchors * (3 + C))
 
     def forward(self, x):
         assert len(x.shape) == 4 and x.shape[3] == 1
         x = x.permute(0, 2, 3, 1).squeeze(2)
-        x = self.fc2(self.relu(self.fc(x)))
+        x = self.relu(self.fc(x))
+        x = self.fc2(self.dropout(x))
         x = x.reshape(x.shape[0], x.shape[1], self.num_anchors, -1)
         return x.permute(0, 2, 1, 3)
 
@@ -44,26 +47,24 @@ class YOLO(nn.Module):
     Forward output:
         (batch, S=11, 3B + C)
     """
-    def __init__(self, B=3, C=20, num_anchors=3):
+    def __init__(self, num_anchors=3, C=20, base_hidden=16, dropout=0):
         super().__init__()
-        self.B = B
-        self.C = C
-        self.num_final_channels = (3 * self.B) + self.C
+        self.num_final_channels = (3 * num_anchors) + C
 
         self.transform = CQT1992v2()
         self.stack = nn.Sequential(
-            ConvBlock(1, 16, (7, 7), 2, 3),
-            ConvBlock(16, 32, (3, 3), 2, 1),
-            ConvBlock(32, 64, (3, 3), 1, 1),
-            ConvBlock(64, 32, (1, 1), 1, 0), # reduce
-            ConvBlock(32, 64, (3, 3), 2, 1),
-            ConvBlock(64, 128, (3, 3), (2, 1), 1),
-            ConvBlock(128, 64, (1, 1), 1, 0), # reduce
-            ConvBlock(64, 128, (3, 3), 2, 1),
-            ConvBlock(128, 256, (3, 3), 2, 1),
-            ConvBlock(256, 512, (3, 3), 1, (1, 0))
+            ConvBlock(1, base_hidden, (7, 7), 2, 3),
+            ConvBlock(base_hidden, base_hidden*2, (3, 3), 2, 1),
+            ConvBlock(base_hidden*2, base_hidden*4, (3, 3), 1, 1),
+            ConvBlock(base_hidden*4, base_hidden*2, (1, 1), 1, 0), # reduce
+            ConvBlock(base_hidden*2, base_hidden*4, (3, 3), 2, 1),
+            ConvBlock(base_hidden*4, base_hidden*8, (3, 3), (2, 1), 1),
+            ConvBlock(base_hidden*8, base_hidden*4, (1, 1), 1, 0), # reduce
+            ConvBlock(base_hidden*4, base_hidden*8, (3, 3), 2, 1),
+            ConvBlock(base_hidden*8, base_hidden*16, (3, 3), 2, 1),
+            ConvBlock(base_hidden*16, base_hidden*32, (3, 3), 1, (1, 0))
         )
-        self.mlp = MLP(512, 512, num_anchors, C)
+        self.mlp = MLP(base_hidden*32, base_hidden*32, num_anchors, C, dropout)
 
     def forward(self, x):
         x = self.transform(x)
@@ -96,32 +97,6 @@ class YOLOLoss(nn.Module):
         self.mse = nn.MSELoss()
         self.ce = nn.CrossEntropyLoss()
         self.sigmoid = nn.Sigmoid()
-
-    def get_iou(self, pred, gt):
-        """
-        1-dimensional Intersection over Union
-        Args:
-            pred: (..., 2)
-            gt: (..., 2)
-
-        Returns:
-            (..., 1)
-        """
-        pred_x, pred_w = pred[..., 0:1], pred[..., 1:2]
-        gt_x, gt_w = gt[..., 0:1], gt[..., 1:2]
-
-        pred_x1 = pred_x - (pred_w / 2)
-        pred_x2 = pred_x + (pred_w / 2)
-        gt_x1 = gt_x - (gt_w / 2)
-        gt_x2 = gt_x + (gt_w / 2)
-
-        i_start = torch.maximum(pred_x1, gt_x1)
-        i_end = torch.minimum(pred_x2, gt_x2)
-
-        intersection = torch.clamp(i_end - i_start, min=0)
-        union = pred_w + gt_w - intersection
-
-        return intersection / (union + 1e-16)
         
     def forward(self, pred, gt):
         obj_mask = gt[..., 0] == 1
@@ -144,7 +119,7 @@ class YOLOLoss(nn.Module):
         # Object Loss
         anchors = self.anchors.reshape(1, 3, 1, 1)
         boundaries_pred = torch.cat([self.sigmoid(pred[..., 1:2]), torch.exp(pred[..., 2:3]) * anchors], dim=-1) # (batch, num_anchors, S, 2)
-        ious = self.get_iou(boundaries_pred[obj_mask], gt[..., 1:3][obj_mask]).detach()
+        ious = get_iou(boundaries_pred[obj_mask], gt[..., 1:3][obj_mask]).detach()
         loss_obj = self.mse(self.sigmoid(pred[..., 0:1][obj_mask]), ious * gt[..., 0:1][obj_mask])
 
         # Coordinate Loss

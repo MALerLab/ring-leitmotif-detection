@@ -7,6 +7,10 @@ batch_size: 32
 lr: 1e-5
 weight_decay: 1e-4
 
+model:
+  base_hidden: 16
+  dropout: 0
+
 dataset:
   wav_dir: data/wav-22050
   instances_dir: data/LeitmotifOccurrencesInstances/Instances
@@ -14,9 +18,15 @@ dataset:
   mixup_prob: 0
   mixup_alpha: 0
 
+loss:
+  lambda_class: 1
+  lambda_noobj: 1
+  lambda_obj: 5
+  lambda_coord: 5
+
 trainer:
   num_epochs: 800
-  patience: 300
+  patience: 400
   wandb:
     log_to_wandb: true
     entity: maler
