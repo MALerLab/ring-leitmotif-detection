@@ -123,4 +123,6 @@ def get_acc(
                     p_box[3] == t_box[3]):
                     num_correct += 1
                     break
+    if num_total == 0:
+        return -1
     return num_correct / num_total

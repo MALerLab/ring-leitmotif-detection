@@ -101,9 +101,12 @@ class Trainer:
             self.model.train()
             self.dataset.enable_mixup()
             total_acc = 0
+            num_total = 0
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
                 loss, loss_dict, acc = self.step(batch)
-                total_acc += acc
+                if acc != -1:
+                    total_acc += acc
+                    num_total += 1
                 self.optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1)
@@ -114,7 +117,7 @@ class Trainer:
                     wandb.log({f"train/{k}": v.item() for k, v in loss_dict.items()}, step=num_iter)
                 num_iter += 1
 
-            avg_acc = total_acc / len(self.train_loader)
+            avg_acc = total_acc / num_total
             if self.log_to_wandb:
                 wandb.log({"train/acc": avg_acc}, step=num_iter)
 
@@ -124,15 +127,19 @@ class Trainer:
                 total_loss = 0
                 total_loss_items = [0, 0, 0, 0]
                 total_acc = 0
+                num_total = 0
                 for batch in tqdm(self.valid_loader, leave=False, ascii=True):
                     loss, loss_dict, acc = self.step(batch)
+                    if acc != -1:
+                        total_acc += acc
+                        num_total += 1
                     total_loss += loss.item()
                     total_loss_items = [a + b.item() for a, b in zip(total_loss_items, loss_dict.values())]
                     total_acc += acc
 
-                avg_loss = total_loss / len(self.valid_loader)
-                avg_loss_items = [a / len(self.valid_loader) for a in total_loss_items]
-                avg_acc = total_acc / len(self.valid_loader)
+                avg_loss = total_loss / num_total
+                avg_loss_items = [a / num_total for a in total_loss_items]
+                avg_acc = total_acc / num_total
 
                 if self.log_to_wandb:
                     wandb.log({"valid/loss": avg_loss}, step=num_iter)
@@ -223,7 +230,8 @@ def main(cfg: DictConfig):
     valid_loader = torch.utils.data.DataLoader(
         valid_set,
         batch_size=cfg.batch_size,
-        shuffle=False,
+        shuffle=True,
+        generator=rng,
         collate_fn = collate_fn,
         num_workers=4,
         pin_memory=True,
