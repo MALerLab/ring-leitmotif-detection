@@ -98,7 +98,9 @@ class YOLOLoss(nn.Module):
         self.ce = nn.CrossEntropyLoss()
         self.sigmoid = nn.Sigmoid()
         
-    def forward(self, pred, gt):
+    def forward(self, p, t):
+        pred = p.clone()
+        gt = t.clone()
         obj_mask = gt[..., 0] == 1
         noobj_mask = gt[..., 0] == 0
 

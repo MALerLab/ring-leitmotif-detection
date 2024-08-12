@@ -346,11 +346,13 @@ class YOLODataset:
                     if instance[2] < start: continue
                     if instance[1] > end: break
                     if instance[0] not in self.idx2motif: continue
-                    fragment_length = min(end, instance[2]) - max(start, instance[1])
+                    fragment_start = max(start, instance[1])
+                    fragment_end = min(end, instance[2])
+                    fragment_length = fragment_end - fragment_start
                     if fragment_length / (instance[2] - instance[1]) > include_threshold:
                         contains_instance = True
-                        fragment_start = (max(start, instance[1]) - start) / self.duration_sec
-                        fragment_end = (min(end, instance[2]) - start) / self.duration_sec
+                        fragment_start = (fragment_start - start) / self.duration_sec
+                        fragment_end = (fragment_end - start) / self.duration_sec # now we're relative to sample duration
                         midpoint = (fragment_start + fragment_end) / 2
                         grid_idx = int(midpoint // self.grid_w)
                         midpoint_remainder = midpoint % self.grid_w
