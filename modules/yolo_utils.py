@@ -45,7 +45,7 @@ def grid_to_absolute(input: torch.Tensor, S=11):
 def nms(
         pred,
         anchors: torch.Tensor,
-        iou_threshold=0.45, 
+        iou_threshold=0.6, 
         conf_threshold=0.05
     ):
     """
@@ -53,11 +53,13 @@ def nms(
         pred: raw output from model (batch, num_anchors, S, 3 + C)
 
     Returns:
-        2-dimensional list of boxes represented as [p_o, x(absolute), w, class_idx]
+        2-dimensional list of boxes represented as [p_o, x(relative to sample), w, class_idx]
     """
+    pred = pred.clone().detach()
 
     num_batches = pred.shape[0]
     pred[..., 0:1] = torch.sigmoid(pred[..., 0:1])
+    pred[..., 1:2] = torch.sigmoid(pred[..., 1:2])
     results = []
     for batch_idx in range(num_batches):
         batch_pred = pred[batch_idx]
@@ -65,7 +67,7 @@ def nms(
         batch_pred = torch.cat(
             [
                 batch_pred[..., 0:1],
-                grid_to_absolute(torch.sigmoid(batch_pred[..., 1:2])), 
+                grid_to_absolute(batch_pred[..., 1:2]), 
                 torch.exp(batch_pred[..., 2:3]) * anchors,
                 torch.argmax(batch_pred[..., 3:], dim=-1).float().unsqueeze(-1)
             ], 
@@ -103,8 +105,8 @@ def get_acc(
         iou_threshold=0.5,
         conf_threshold=0.1
     ):
-    batch_size = gt.shape[0]
-    t = torch.clone(gt)
+    t = gt.clone().detach()
+    batch_size = t.shape[0]
     t[..., 1:2] = grid_to_absolute(t[..., 1:2])
     anchors = anchors.reshape(1, 3, 1, 1)
     t[..., 2:3] = t[..., 2:3] * anchors
@@ -114,7 +116,7 @@ def get_acc(
     for i in range(batch_size):
         if torch.sum(t[i][t[i][..., 0] == 1]) == 0:
             continue
-        p = torch.tensor(suppressed_pred[i]).to(gt.device)
+        p = torch.tensor(suppressed_pred[i]).to(t.device)
         for t_box in t[i][t[i][..., 0] == 1]:
             num_total += 1
             for p_box in p:
