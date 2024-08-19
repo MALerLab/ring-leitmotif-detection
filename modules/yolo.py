@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from nnAudio.features.cqt import CQT1992v2
-from .yolo_utils import get_iou
+from .yolo_utils import get_iou, grid_to_absolute
 
 
 class ConvBlock(nn.Module):
@@ -120,13 +120,28 @@ class YOLOLoss(nn.Module):
 
         # Object Loss
         anchors = self.anchors.reshape(1, 3, 1, 1)
-        boundaries_pred = torch.cat([self.sigmoid(pred[..., 1:2]), torch.exp(pred[..., 2:3]) * anchors], dim=-1) # (batch, num_anchors, S, 2)
-        ious = get_iou(boundaries_pred[obj_mask], gt[..., 1:3][obj_mask]).detach()
-        loss_obj = self.mse(self.sigmoid(pred[..., 0:1][obj_mask]), ious * gt[..., 0:1][obj_mask])
+        p = torch.cat(
+            [
+                grid_to_absolute(self.sigmoid(pred[..., 1:2]), batched=True),
+                torch.exp(pred[..., 2:3]) * anchors
+            ],
+            dim=-1
+        ) # (batch, num_anchors, S, 2)
+
+        t = torch.cat(
+            [
+                grid_to_absolute(gt[..., 1:2], batched=True),
+                gt[..., 2:3] * anchors
+            ],
+            dim=-1
+        ) # (batch, num_anchors, S, 2)
+
+        ious = get_iou(p[obj_mask], t[obj_mask]).detach()
+        loss_obj = self.mse(self.sigmoid(pred[..., 0:1][obj_mask]), ious)
 
         # Coordinate Loss
         pred[..., 1:2] = self.sigmoid(pred[..., 1:2]) # x
-        gt[..., 2:3] = torch.log(1e-16 + gt[..., 2:3] / anchors) # w
+        gt[..., 2:3] = torch.log(1e-16 + gt[..., 2:3]) # w
         loss_coord = self.mse(pred[..., 1:3][obj_mask], gt[..., 1:3][obj_mask])
  
         # Class Loss

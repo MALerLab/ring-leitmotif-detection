@@ -17,6 +17,7 @@ dataset:
   split: version
   mixup_prob: 0
   mixup_alpha: 0
+  max_none_samples: 3000
 
 loss:
   lambda_class: 1

@@ -201,6 +201,7 @@ def main(cfg: DictConfig):
         constants.VALID_ACTS,
         C.MOTIFS,
         C.ANCHORS,
+        max_none_samples=cfg.dataset.max_none_samples,
         split = cfg.dataset.split,
         mixup_prob = cfg.dataset.mixup_prob,
         mixup_alpha = cfg.dataset.mixup_alpha,

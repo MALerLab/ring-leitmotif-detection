@@ -28,18 +28,23 @@ def get_iou(pred, gt):
 
     return intersection / (union + 1e-16)
 
-def grid_to_absolute(input: torch.Tensor, S=11):
+def grid_to_absolute(input: torch.Tensor, S=11, batched = False):
     """
     Converts x position from grid-relative to absolute
 
     Args:
-        input: (num_boxes, S, 1:x)
+        input: (num_anchors, S, 1:x) or (batch, num_anchors, S, 1:x)
 
     Returns:
-        (num_boxes, S, 1)
+        (num_anchors, S, 1) or (batch, num_anchors, S, 1)
     """
 
-    return (input + torch.arange(S).float().reshape(1, S, 1).to(input.device)) / S
+    if batched:
+        assert len(input.shape) == 4 and input.shape[2] == S
+        return (input + torch.arange(S).float().reshape(1, 1, S, 1).to(input.device)) / S
+    else:
+        assert len(input.shape) == 3 and input.shape[1] == S
+        return (input + torch.arange(S).float().reshape(1, S, 1).to(input.device)) / S
 
 
 def nms(
@@ -107,7 +112,7 @@ def get_acc(
     ):
     t = gt.clone().detach()
     batch_size = t.shape[0]
-    t[..., 1:2] = grid_to_absolute(t[..., 1:2])
+    t[..., 1:2] = grid_to_absolute(t[..., 1:2], batched=True)
     anchors = anchors.reshape(1, 3, 1, 1)
     t[..., 2:3] = t[..., 2:3] * anchors
 
