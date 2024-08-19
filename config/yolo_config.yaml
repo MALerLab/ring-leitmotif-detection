@@ -26,8 +26,8 @@ loss:
   lambda_coord: 5
 
 trainer:
-  num_epochs: 800
-  patience: 400
+  num_epochs: 120
+  patience: 40
   wandb:
     log_to_wandb: true
     entity: maler
