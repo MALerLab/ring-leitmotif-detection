@@ -135,10 +135,9 @@ class Trainer:
                         num_total += 1
                     total_loss += loss.item()
                     total_loss_items = [a + b.item() for a, b in zip(total_loss_items, loss_dict.values())]
-                    total_acc += acc
 
-                avg_loss = total_loss / num_total
-                avg_loss_items = [a / num_total for a in total_loss_items]
+                avg_loss = total_loss / len(self.valid_loader)
+                avg_loss_items = [a / len(self.valid_loader) for a in total_loss_items]
                 avg_acc = total_acc / num_total
 
                 if self.log_to_wandb:

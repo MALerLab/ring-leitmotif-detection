@@ -108,7 +108,7 @@ def get_acc(
         gt:torch.Tensor, 
         anchors:torch.Tensor, 
         iou_threshold=0.5,
-        conf_threshold=0.1
+        conf_threshold=0.5
     ):
     t = gt.clone().detach()
     batch_size = t.shape[0]
