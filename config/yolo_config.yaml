@@ -13,11 +13,18 @@ model:
 
 dataset:
   wav_dir: data/wav-22050
-  instances_dir: data/LeitmotifOccurrencesInstances/Instances
+  instances_dir: data/LeitmotifOccurrencesInstances
   split: version
+  use_merged_data: false
   mixup_prob: 0
   mixup_alpha: 0
   max_none_samples: 3000
+
+augmentation:
+  mixup_prob: 0
+  mixup_alpha: 0.07
+  pitchshift_prob: 0
+  pitchshift_semitones: 4
 
 loss:
   lambda_class: 1
@@ -33,3 +40,6 @@ trainer:
     entity: maler
     project: leitmotif-yolo
     run_name: null
+
+eval:
+  checkpoint: null

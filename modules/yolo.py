@@ -47,7 +47,8 @@ class YOLO(nn.Module):
     Forward output:
         (batch, S=11, 3B + C)
     """
-    def __init__(self, num_anchors=3, C=20, base_hidden=16, dropout=0):
+    def __init__(
+            self, num_anchors=3, C=20, base_hidden=16, dropout=0):
         super().__init__()
         self.num_final_channels = (3 * num_anchors) + C
 

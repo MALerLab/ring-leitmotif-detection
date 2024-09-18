@@ -1,0 +1,17 @@
+Split: version
+Checkpoint: checkpoints/YOLO/version-base24-do0.4-no_none_pitch0.3_best_epoch41_1.4684.pt
+=========== Evaluation Results ============
+      Nibelungen | P: 0.206, R: 0.413, F1: 0.275, Threshold: 0.160
+            Ring | P: 0.373, R: 0.443, F1: 0.405, Threshold: 0.260
+  Nibelungenhass | P: 0.350, R: 0.353, F1: 0.351, Threshold: 0.280
+            Ritt | P: 0.194, R: 0.355, F1: 0.251, Threshold: 0.150
+       Waldweben | P: 0.450, R: 0.539, F1: 0.490, Threshold: 0.250
+       Waberlohe | P: 0.129, R: 0.429, F1: 0.198, Threshold: 0.150
+            Horn | P: 0.284, R: 0.341, F1: 0.310, Threshold: 0.190
+         Schwert | P: 0.248, R: 0.457, F1: 0.321, Threshold: 0.180
+       Walhall-b | P: 0.314, R: 0.452, F1: 0.371, Threshold: 0.200
+     Feuerzauber | P: 0.429, R: 0.385, F1: 0.406, Threshold: 0.290
+          Unmuth | P: 0.290, R: 0.381, F1: 0.329, Threshold: 0.230
+       Siegfried | P: 0.411, R: 0.287, F1: 0.338, Threshold: 0.250
+         Vertrag | P: 0.253, R: 0.545, F1: 0.345, Threshold: 0.150
+     Matrix Mean | P: 0.263, R: 0.428, F1: 0.326, Threshold: 0.190

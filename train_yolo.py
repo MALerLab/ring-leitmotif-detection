@@ -99,7 +99,7 @@ class Trainer:
                 wandb.log({"epoch": epoch}, step=num_iter)
             self.cur_epoch = epoch
             self.model.train()
-            self.dataset.enable_mixup()
+            self.dataset.enable_augmentations()
             total_acc = 0
             num_total = 0
             for batch in tqdm(self.train_loader, leave=False, ascii=True):
@@ -122,7 +122,7 @@ class Trainer:
                 wandb.log({"train/acc": avg_acc}, step=num_iter)
 
             self.model.eval()
-            self.dataset.disable_mixup()
+            self.dataset.disable_augmentations()
             with torch.inference_mode():
                 total_loss = 0
                 total_loss_items = [0, 0, 0, 0]
@@ -193,17 +193,20 @@ def main(cfg: DictConfig):
 
     base_set = YOLODataset(
         Path(cfg.dataset.wav_dir), 
-        Path("data/LeitmotifOccurrencesInstances/Instances"),
+        Path(cfg.dataset.instances_dir),
         constants.TRAIN_VERSIONS,
         constants.VALID_VERSIONS,
         constants.TRAIN_ACTS,
         constants.VALID_ACTS,
         C.MOTIFS,
         C.ANCHORS,
+        use_merged_data=cfg.dataset.use_merged_data,
         max_none_samples=cfg.dataset.max_none_samples,
         split = cfg.dataset.split,
         mixup_prob = cfg.dataset.mixup_prob,
         mixup_alpha = cfg.dataset.mixup_alpha,
+        pitchshift_prob = cfg.augmentation.pitchshift_prob,
+        pitchshift_semitones = cfg.augmentation.pitchshift_semitones,
         device = DEV
     )
     train_set, valid_set, = None, None
@@ -223,19 +226,15 @@ def main(cfg: DictConfig):
         shuffle=True,
         generator=rng,
         collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True,
-        pin_memory_device=DEV
+        num_workers=0
     )
     valid_loader = torch.utils.data.DataLoader(
         valid_set,
         batch_size=cfg.batch_size,
-        shuffle=True,
+        shuffle=False,
         generator=rng,
         collate_fn = collate_fn,
-        num_workers=4,
-        pin_memory=True,
-        pin_memory_device=DEV
+        num_workers=0
     )
 
     model = YOLO(
@@ -251,4 +250,5 @@ def main(cfg: DictConfig):
     trainer.train()
 
 if __name__ == "__main__":
+    torch.multiprocessing.set_start_method("spawn")
     main()
