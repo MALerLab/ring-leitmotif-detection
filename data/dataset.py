@@ -493,8 +493,8 @@ class YOLODataset:
     def __getitem__(self, idx):
         if idx < len(self.samples):
             version, act, start, end, gt = self.samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end] #.to(self.device)
-            # wav = self.apply_augmentations(wav, version, act)
+            wav = self.wavs[f"{version}_{act}"][start:end].to(self.device)
+            wav = self.apply_augmentations(wav, version, act)
 
             # if self.eval:
             #     start_frame = int(round(start / 512))
@@ -505,7 +505,7 @@ class YOLODataset:
         else:
             idx -= len(self.samples)
             version, act, start, end, gt = self.none_samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end] #.to(self.device)
+            wav = self.wavs[f"{version}_{act}"][start:end].to(self.device)
             # if self.eval:
             #     start_frame = int(round(start / 512))
             #     end_frame = start_frame + self.duration_frames

@@ -201,9 +201,8 @@ def main(cfg: DictConfig):
         constants.VALID_ACTS,
         C.MOTIFS,
         C.ANCHORS,
-        overlap_sec=cfg.dataset.overlap_sec,
         use_merged_data=cfg.dataset.use_merged_data,
-        # max_none_samples=cfg.dataset.max_none_samples,
+        max_none_samples=cfg.dataset.max_none_samples,
         split = cfg.dataset.split,
         mixup_prob = cfg.dataset.mixup_prob,
         mixup_alpha = cfg.dataset.mixup_alpha,
@@ -228,7 +227,7 @@ def main(cfg: DictConfig):
         shuffle=True,
         generator=rng,
         collate_fn=collate_fn,
-        num_workers=0,
+        num_workers=0
     )
     valid_loader = torch.utils.data.DataLoader(
         valid_set,
@@ -236,7 +235,7 @@ def main(cfg: DictConfig):
         shuffle=False,
         generator=rng,
         collate_fn = collate_fn,
-        num_workers=0,
+        num_workers=0
     )
 
     model = YOLO(

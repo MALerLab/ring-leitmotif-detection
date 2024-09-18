@@ -12,7 +12,7 @@ model:
   dropout: 0
 
 dataset:
-  wav_dir: ../ring_leitmotif/data/wav-22050
+  wav_dir: data/wav-22050
   instances_dir: data/LeitmotifOccurrencesInstances
   split: version
   overlap_sec: 3
