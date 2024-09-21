@@ -3,6 +3,7 @@ import math
 import random
 import pandas as pd
 import torch
+import torchaudio
 from tqdm.auto import tqdm
 from .data_utils import (
     sample_instance_intervals,
@@ -67,7 +68,7 @@ class OTFDataset:
             # Create ground truth instance tensors
             self.instances_gts[fn.stem] = torch.zeros((num_frames, self.num_classes))
             instances = list(pd.read_csv(
-                instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
+                self.instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
             for instance in instances:
                 motif = instance[0]
                 if motif not in self.idx2motif:
@@ -251,15 +252,20 @@ class OTFDataset:
             return wav, torch.zeros((end - start, self.num_classes))
         
 class Subset:
-    def __init__(self, dataset, indices):
+    def __init__(self, dataset, indices:tuple, non_sample_ratio:float=2.0):
         self.dataset = dataset
-        self.indices = indices
+        self.sample_indices, self.non_sample_indices = indices
+        self.non_sample_ratio = int(len(self.sample_indices) * non_sample_ratio)
 
     def __len__(self):
-        return len(self.indices)
+        return len(self.sample_indices) + min(len(self.non_sample_indices), self.non_sample_ratio)
 
     def __getitem__(self, idx):
-        return self.dataset[self.indices[idx]]
+        if idx < len(self.sample_indices):
+            return self.dataset[self.sample_indices[idx]]
+        else:
+            idx -= len(self.sample_indices)
+            return self.dataset[self.non_sample_indices[idx]]
 
 
 def collate_fn(batch):
@@ -279,14 +285,19 @@ class YOLODataset:
             valid_acts,
             idx2motif,
             anchors,
+            use_merged_data=False,
             duration_sec=15,
             overlap_sec=3,
+            duration_frames=646,
             include_threshold=0.5,
             max_none_samples=3000,
             S=11,
             split="version",
             mixup_prob=0,
             mixup_alpha=0,
+            pitchshift_prob=0,
+            pitchshift_semitones=3,
+            eval=False,
             device = "cuda"
     ):
         assert split in ["version", "act"]
@@ -299,9 +310,13 @@ class YOLODataset:
         self.anchors = anchors
         self.wav_fns = sorted(list(wav_path.glob("*.pt")))
         self.stems = [x.stem for x in self.wav_fns]
-        self.instances_path = instances_path
+        if use_merged_data:
+            self.instances_path = instances_path / "MergedInstances"
+        else:
+            self.instances_path = instances_path / "Instances"
         self.duration_sec = duration_sec
         self.increment_sec = duration_sec - overlap_sec
+        self.duration_frames = duration_frames
         self.include_threshold = include_threshold
         self.max_none_samples = max_none_samples
         self.S = S
@@ -309,6 +324,10 @@ class YOLODataset:
         self.mixup_prob = mixup_prob
         self.cur_mixup_prob = mixup_prob
         self.mixup_alpha = mixup_alpha
+        self.pitchshift_prob = pitchshift_prob
+        self.cur_pitchshift_prob = pitchshift_prob
+        self.pitchshift_semitones = pitchshift_semitones
+        self.eval = eval
         self.device = device
         self.grid_w = 1 / S
 
@@ -316,6 +335,7 @@ class YOLODataset:
         self.samples = []
         self.none_samples = []
         self.num_classes = len(self.idx2motif)
+        self.framewise_gts = {}
 
         print("Loading data...")
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
@@ -325,14 +345,34 @@ class YOLODataset:
                 continue
             if self.split == "act" and act not in self.train_acts + self.valid_acts:
                 continue
+            if self.eval and self.split == "version" and version in self.train_versions:
+                continue
+            if self.eval and self.split == "act" and act in self.train_acts:
+                continue
             
             # Load waveform and instance list
             with open(fn, "rb") as f:
                 self.wavs[fn.stem] = torch.load(f, weights_only=True)
             length_sec = self.wavs[fn.stem].shape[0] / 22050
             instances = list(pd.read_csv(
-                instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
+                self.instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
             instances.sort(key=lambda x: x[1])
+
+            # if self.eval:
+            #     num_frames = math.ceil(self.wavs[fn.stem].shape[0] / 512)
+            #     # Create framewise ground truth tensors
+            #     self.framewise_gts[fn.stem] = torch.zeros((num_frames, self.num_classes))
+            #     instances = list(pd.read_csv(
+            #         instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
+            #     for instance in instances:
+            #         motif = instance[0]
+            #         if motif not in self.idx2motif: continue
+            #         start = instance[1]
+            #         end = instance[2]
+            #         start_idx = int(round(start * 22050 / 512))
+            #         end_idx = int(round(end * 22050 / 512))
+            #         motif_idx = self.motif2idx[motif]
+            #         self.framewise_gts[fn.stem][start_idx:end_idx, motif_idx] = 1
 
             # Slice instances and create ground truth tensors
             for i in range(0, math.floor(length_sec), self.increment_sec):
@@ -374,7 +414,7 @@ class YOLODataset:
         
         print("Shuffling and truncating none samples...")
         random.shuffle(self.none_samples)
-        self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
+        # self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
 
         # Create none sample index lookup table
         self.none_samples_by_version = {}
@@ -386,11 +426,31 @@ class YOLODataset:
             self.none_samples_by_act[act] = [idx for (idx, x) in enumerate(
                 self.none_samples) if x[1] == act]
             
-    def enable_mixup(self):
+    def enable_augmentations(self):
         self.cur_mixup_prob = self.mixup_prob
+        self.cur_pitchshift_prob = self.pitchshift_prob
     
-    def disable_mixup(self):
+    def disable_augmentations(self):
         self.cur_mixup_prob = 0
+        self.cur_pitchshift_prob = 0
+
+    def apply_augmentations(self, wav, version, act):
+        if random.random() < self.cur_mixup_prob:
+            mixup_idx = 0
+            if self.split == "version":
+                mixup_idx = random.choice(self.none_samples_by_version[version[0]])
+            else:
+                mixup_idx = random.choice(self.none_samples_by_act[act("_")[1]])
+            mixup_fn, mixup_start, mixup_end, _ = self.none_samples[mixup_idx]
+            mixup_wav = self.wavs[mixup_fn][mixup_start:mixup_end]
+            wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
+        
+        if random.random() < self.cur_pitchshift_prob:
+            semitones = 0
+            while semitones == 0:
+                semitones = random.randint(-self.pitchshift_semitones, self.pitchshift_semitones) * 0.5
+            wav = torchaudio.functional.pitch_shift(wav, 22050, semitones, n_fft=2048)
+        return wav
             
     def iou_start_end(self, b1:tuple, b2:tuple):
         start1, end1 = b1
@@ -413,44 +473,46 @@ class YOLODataset:
                 self.samples) if x[1] in acts]
             none_samples = [idx + len(self.samples) for (idx, x)
                             in enumerate(self.none_samples) if x[1] in acts]
-            return samples + none_samples
+            return samples, none_samples
         elif acts is None:
             samples = [idx for (idx, x) in enumerate(
                 self.samples) if x[0] in versions]
             none_samples = [idx + len(self.samples) for (idx, x)
                             in enumerate(self.none_samples) if x[0] in versions]
-            return samples + none_samples
+            return samples, none_samples
         else:
             samples = [idx for (idx, x) in enumerate(
                 self.samples) if x[0] in versions and x[1] in acts]
             none_samples = [idx + len(self.samples) for (idx, x) in enumerate(
                 self.none_samples) if x[0] in versions and x[1] in acts]
-            return samples + none_samples
+            return samples, none_samples
         
     def __len__(self):
-        return len(self.samples) + len(self.none_samples)
+        return len(self.samples) + min(len(self.none_samples), self.max_none_samples)
     
     def __getitem__(self, idx):
         if idx < len(self.samples):
             version, act, start, end, gt = self.samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end]
-            if random.random() < self.cur_mixup_prob:
-                mixup_idx = 0
-                if self.split == "version":
-                    mixup_idx = random.choice(self.none_samples_by_version[version[0]])
-                else:
-                    mixup_idx = random.choice(self.none_samples_by_act[act("_")[1]])
-                mixup_fn, mixup_start, mixup_end, _ = self.none_samples[mixup_idx]
-                mixup_wav = self.wavs[mixup_fn][mixup_start:mixup_end]
-                wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
+            wav = self.wavs[f"{version}_{act}"][start:end] #.to(self.device)
+            # wav = self.apply_augmentations(wav, version, act)
+
+            # if self.eval:
+            #     start_frame = int(round(start / 512))
+            #     end_frame = start_frame + self.duration_frames
+            #     return wav, self.framewise_gts[f"{version}_{act}"][start_frame:end_frame, :]
+            # else:
             return wav, gt
         else:
             idx -= len(self.samples)
             version, act, start, end, gt = self.none_samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end]
+            wav = self.wavs[f"{version}_{act}"][start:end] #.to(self.device)
+            # if self.eval:
+            #     start_frame = int(round(start / 512))
+            #     end_frame = start_frame + self.duration_frames
+            #     return wav, torch.zeros((end_frame - start_frame, self.num_classes))
+            # else:
             return wav, gt
 
-    
 
 if __name__ == "__main__":
     dummy_anchors = [0.1, 0.2, 0.5]

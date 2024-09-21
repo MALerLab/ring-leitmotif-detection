@@ -125,7 +125,7 @@ def get_acc(
         for t_box in t[i][t[i][..., 0] == 1]:
             num_total += 1
             for p_box in p:
-                if (get_iou(t_box[1:3], p_box[1:3]) > iou_threshold and 
+                if (get_iou(t_box[1:3], p_box[1:3]).item() > iou_threshold and 
                     p_box[0] > conf_threshold and
                     p_box[3] == t_box[3]):
                     num_correct += 1
