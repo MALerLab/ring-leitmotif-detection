@@ -4,6 +4,7 @@ import random
 import pandas as pd
 import torch
 import torchaudio
+import torchaudio
 from tqdm.auto import tqdm
 from .data_utils import (
     sample_instance_intervals,
@@ -493,24 +494,21 @@ class YOLODataset:
     def __getitem__(self, idx):
         if idx < len(self.samples):
             version, act, start, end, gt = self.samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end] #.to(self.device)
-            # wav = self.apply_augmentations(wav, version, act)
-
-            # if self.eval:
-            #     start_frame = int(round(start / 512))
-            #     end_frame = start_frame + self.duration_frames
-            #     return wav, self.framewise_gts[f"{version}_{act}"][start_frame:end_frame, :]
-            # else:
+            wav = self.wavs[f"{version}_{act}"][start:end]
+            if random.random() < self.cur_mixup_prob:
+                mixup_idx = 0
+                if self.split == "version":
+                    mixup_idx = random.choice(self.none_samples_by_version[version[0]])
+                else:
+                    mixup_idx = random.choice(self.none_samples_by_act[act("_")[1]])
+                mixup_fn, mixup_start, mixup_end, _ = self.none_samples[mixup_idx]
+                mixup_wav = self.wavs[mixup_fn][mixup_start:mixup_end]
+                wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
             return wav, gt
         else:
             idx -= len(self.samples)
             version, act, start, end, gt = self.none_samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end] #.to(self.device)
-            # if self.eval:
-            #     start_frame = int(round(start / 512))
-            #     end_frame = start_frame + self.duration_frames
-            #     return wav, torch.zeros((end_frame - start_frame, self.num_classes))
-            # else:
+            wav = self.wavs[f"{version}_{act}"][start:end]
             return wav, gt
 
 

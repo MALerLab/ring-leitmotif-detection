@@ -100,6 +100,7 @@ class Trainer:
             self.cur_epoch = epoch
             self.model.train()
             self.dataset.enable_augmentations()
+            self.dataset.enable_augmentations()
             total_acc = 0
             num_total = 0
             random.shuffle(self.train_loader.dataset.non_sample_indices)
@@ -123,6 +124,7 @@ class Trainer:
                 wandb.log({"train/acc": avg_acc}, step=num_iter)
 
             self.model.eval()
+            self.dataset.disable_augmentations()
             self.dataset.disable_augmentations()
             with torch.inference_mode():
                 total_loss = 0
@@ -195,6 +197,7 @@ def main(cfg: DictConfig):
     base_set = YOLODataset(
         Path(cfg.dataset.wav_dir), 
         Path(cfg.dataset.instances_dir),
+        Path(cfg.dataset.instances_dir),
         constants.TRAIN_VERSIONS,
         constants.VALID_VERSIONS,
         constants.TRAIN_ACTS,
@@ -204,9 +207,13 @@ def main(cfg: DictConfig):
         overlap_sec=cfg.dataset.overlap_sec,
         use_merged_data=cfg.dataset.use_merged_data,
         # max_none_samples=cfg.dataset.max_none_samples,
+        use_merged_data=cfg.dataset.use_merged_data,
+        max_none_samples=cfg.dataset.max_none_samples,
         split = cfg.dataset.split,
         mixup_prob = cfg.dataset.mixup_prob,
         mixup_alpha = cfg.dataset.mixup_alpha,
+        pitchshift_prob = cfg.augmentation.pitchshift_prob,
+        pitchshift_semitones = cfg.augmentation.pitchshift_semitones,
         pitchshift_prob = cfg.augmentation.pitchshift_prob,
         pitchshift_semitones = cfg.augmentation.pitchshift_semitones,
         device = DEV
@@ -228,6 +235,7 @@ def main(cfg: DictConfig):
         shuffle=True,
         generator=rng,
         collate_fn=collate_fn,
+        num_workers=0
         num_workers=0,
     )
     valid_loader = torch.utils.data.DataLoader(
@@ -236,7 +244,7 @@ def main(cfg: DictConfig):
         shuffle=False,
         generator=rng,
         collate_fn = collate_fn,
-        num_workers=0,
+        num_workers=0
     )
 
     model = YOLO(
