@@ -47,7 +47,8 @@ class YOLO(nn.Module):
     Forward output:
         (batch, S=11, 3B + C)
     """
-    def __init__(self, num_anchors=3, C=20, base_hidden=16, dropout=0):
+    def __init__(
+            self, num_anchors=3, C=20, base_hidden=16, dropout=0):
         super().__init__()
         self.num_final_channels = (3 * num_anchors) + C
 
@@ -83,9 +84,9 @@ class YOLOLoss(nn.Module):
     def __init__(self,
                  anchors: torch.Tensor,
                  lambda_class=1,
-                 lambda_noobj=1,
-                 lambda_obj=10,
-                 lambda_coord=10):
+                 lambda_noobj=0.3,
+                 lambda_obj=1,
+                 lambda_coord=1):
         super().__init__()
         self.lambda_class = lambda_class
         self.lambda_noobj = lambda_noobj
@@ -93,9 +94,9 @@ class YOLOLoss(nn.Module):
         self.lambda_coord = lambda_coord
         self.anchors = anchors
 
-        self.bce = nn.BCELoss()
-        self.mse = nn.MSELoss()
-        self.ce = nn.CrossEntropyLoss()
+        self.bce = nn.BCELoss(reduction="sum")
+        self.mse = nn.MSELoss(reduction="sum")
+        self.ce = nn.CrossEntropyLoss(reduction="sum")
         self.sigmoid = nn.Sigmoid()
         
     def forward(self, p, t):
@@ -105,7 +106,8 @@ class YOLOLoss(nn.Module):
         noobj_mask = gt[..., 0] == 0
 
         # NoObject Loss
-        loss_noobj = self.bce(self.sigmoid(pred[..., 0:1][noobj_mask]), gt[..., 0:1][noobj_mask])
+        # loss_noobj = self.bce(self.sigmoid(pred[..., 0:1][noobj_mask]), gt[..., 0:1][noobj_mask])
+        loss_noobj = self.mse(self.sigmoid(pred[..., 0:1][noobj_mask]), gt[..., 0:1][noobj_mask]) / pred.shape[0]
 
         if obj_mask.sum() == 0:
             return (
@@ -137,15 +139,15 @@ class YOLOLoss(nn.Module):
         ) # (batch, num_anchors, S, 2)
 
         ious = get_iou(p[obj_mask], t[obj_mask]).detach()
-        loss_obj = self.mse(self.sigmoid(pred[..., 0:1][obj_mask]), ious)
+        loss_obj = self.mse(self.sigmoid(pred[..., 0:1][obj_mask]), ious)  / pred.shape[0]
 
         # Coordinate Loss
         pred[..., 1:2] = self.sigmoid(pred[..., 1:2]) # x
         gt[..., 2:3] = torch.log(1e-16 + gt[..., 2:3]) # w
-        loss_coord = self.mse(pred[..., 1:3][obj_mask], gt[..., 1:3][obj_mask])
+        loss_coord = self.mse(pred[..., 1:3][obj_mask], gt[..., 1:3][obj_mask])  / pred.shape[0]
  
         # Class Loss
-        loss_class = self.ce(pred[..., 3:][obj_mask], gt[..., 3][obj_mask].long())
+        loss_class = self.ce(pred[..., 3:][obj_mask], gt[..., 3][obj_mask].long())  / pred.shape[0]
 
         return (
             self.lambda_noobj * loss_noobj + 
