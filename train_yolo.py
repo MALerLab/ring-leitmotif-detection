@@ -207,13 +207,9 @@ def main(cfg: DictConfig):
         overlap_sec=cfg.dataset.overlap_sec,
         use_merged_data=cfg.dataset.use_merged_data,
         # max_none_samples=cfg.dataset.max_none_samples,
-        use_merged_data=cfg.dataset.use_merged_data,
-        max_none_samples=cfg.dataset.max_none_samples,
         split = cfg.dataset.split,
         mixup_prob = cfg.dataset.mixup_prob,
         mixup_alpha = cfg.dataset.mixup_alpha,
-        pitchshift_prob = cfg.augmentation.pitchshift_prob,
-        pitchshift_semitones = cfg.augmentation.pitchshift_semitones,
         pitchshift_prob = cfg.augmentation.pitchshift_prob,
         pitchshift_semitones = cfg.augmentation.pitchshift_semitones,
         device = DEV
@@ -236,7 +232,6 @@ def main(cfg: DictConfig):
         generator=rng,
         collate_fn=collate_fn,
         num_workers=0
-        num_workers=0,
     )
     valid_loader = torch.utils.data.DataLoader(
         valid_set,
