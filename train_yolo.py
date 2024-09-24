@@ -197,7 +197,6 @@ def main(cfg: DictConfig):
     base_set = YOLODataset(
         Path(cfg.dataset.wav_dir), 
         Path(cfg.dataset.instances_dir),
-        Path(cfg.dataset.instances_dir),
         constants.TRAIN_VERSIONS,
         constants.VALID_VERSIONS,
         constants.TRAIN_ACTS,
@@ -206,7 +205,6 @@ def main(cfg: DictConfig):
         C.ANCHORS,
         overlap_sec=cfg.dataset.overlap_sec,
         use_merged_data=cfg.dataset.use_merged_data,
-        # max_none_samples=cfg.dataset.max_none_samples,
         split = cfg.dataset.split,
         mixup_prob = cfg.dataset.mixup_prob,
         mixup_alpha = cfg.dataset.mixup_alpha,
