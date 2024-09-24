@@ -32,42 +32,53 @@ class DilatedMaxPool1d(nn.Module):
         padded_x[:, :, self.dilation:-self.dilation] = x
         return self.maxpool(padded_x)
     
+class ConvBlock(nn.Module):
+    def __init__(
+            self,
+            in_channels, 
+            out_channels, 
+            kernel_size, 
+            stride, 
+            padding,
+            dilation
+        ):
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels, 
+            out_channels, 
+            kernel_size, 
+            stride, 
+            padding, 
+            dilation
+        )
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.LeakyReLU(0.1)
+
+    def forward(self, x):
+        return self.relu(self.bn(self.conv(x)))
+    
 class ConvStack(nn.Module):
-    def __init__(self):
+    def __init__(self, base_hidden=16):
         super().__init__()
         self.stack1 = nn.Sequential(
-            nn.Conv2d(1, 128, (3, 3), (1, 1), "same", (1, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(128),
-            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (1, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
+            ConvBlock(1, base_hidden, (3, 3), (1, 1), "same", (1, 1)),
+            ConvBlock(base_hidden, base_hidden*4, (3, 3), (1, 1), "same", (1, 1)),
             DilatedMaxPool2d((3, 3), (1, 3), (1, 1)),
-            nn.Conv2d(64, 128, (3, 3), (1, 1), "same", (3, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(128),
-            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (3, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
+            ConvBlock(base_hidden*4, base_hidden*8, (3, 3), (1, 1), "same", (3, 1)),
+            ConvBlock(base_hidden*8, base_hidden*4, (3, 3), (1, 1), "same", (3, 1)),
             DilatedMaxPool2d((3, 3), (1, 3), (3, 1)),
-            nn.Conv2d(64, 128, (3, 3), (1, 1), "same", (9, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(128),
-            nn.Conv2d(128, 64, (3, 3), (1, 1), "same", (9, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
+            ConvBlock(base_hidden*4, base_hidden*16, (3, 3), (1, 1), "same", (9, 1)),
+            ConvBlock(base_hidden*16, base_hidden*8, (3, 3), (1, 1), "same", (9, 1)),
             DilatedMaxPool2d((3, 3), (1, 3), (9, 1)),
-            nn.Conv2d(64, 64, (1, 4), (1, 1), 0, (1, 1)),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm2d(64),
+            ConvBlock(base_hidden*8, base_hidden*16, (1, 4), (1, 1), 0, (1, 1)),
         )
         self.stack2 = nn.Sequential(
-            nn.Conv1d(64, 128, 3, 1, "same", 27),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm1d(128),
-            nn.Conv1d(128, 64, 3, 1, "same", 27),
-            nn.LeakyReLU(0.2),
-            nn.BatchNorm1d(64),
+            nn.Conv1d(base_hidden*16, base_hidden*32, 3, 1, "same", 27),
+            nn.LeakyReLU(0.1),
+            nn.BatchNorm1d(base_hidden*16),
+            nn.Conv1d(base_hidden*32, base_hidden*32, 3, 1, "same", 27),
+            nn.LeakyReLU(0.1),
+            nn.BatchNorm1d(base_hidden*32),
             DilatedMaxPool1d(3, 1, 27)
         )
     
@@ -79,18 +90,23 @@ class ConvStack(nn.Module):
         return x.transpose(1, 2)
 
 class CNNModel(nn.Module):
-    def __init__(self, num_classes=21):
+    def __init__(self, num_classes=21, base_hidden=16, dropout=0.2):
         super().__init__()
         self.transform = CQT1992v2()
-        self.stack = ConvStack()
-        self.proj = nn.Linear(64, num_classes)
+        self.stack = ConvStack(base_hidden)
+        self.proj = nn.Sequential(
+            nn.Linear(base_hidden*32, base_hidden*32),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(dropout),
+            nn.Linear(base_hidden*32, num_classes)
+        )
 
     def forward(self, x):
         cqt = self.transform(x)
         cqt = (cqt / cqt.max()).transpose(1, 2)
         cnn_out = self.stack(cqt)
-        leitmotif_pred = self.proj(cnn_out).sigmoid()
-        return leitmotif_pred
+        pred = self.proj(cnn_out).sigmoid()
+        return pred
     
 class CRNNModel(nn.Module):
     def __init__(self, 
