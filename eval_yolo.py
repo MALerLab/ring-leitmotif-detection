@@ -60,7 +60,6 @@ def main(cfg: DictConfig):
         mixup_alpha = 0,
         pitchshift_prob = 0,
         pitchshift_semitones = 0,
-        eval=True,
         device = DEV
     )
 
