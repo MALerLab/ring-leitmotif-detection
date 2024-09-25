@@ -6,7 +6,7 @@ from nnAudio.features.cqt import CQT1992v2
 import hydra
 from omegaconf import DictConfig
 from tqdm.auto import tqdm
-from data.dataset import OTFDataset
+from data.dataset import FramewiseDataset
 from data.data_utils import get_binary_f1, id2version, idx2motif
 from modules import CNNModel, FiLMModel, FiLMAttnModel, CNNAttnModel, BBoxModel
 import constants as C
@@ -151,7 +151,7 @@ def main(config: DictConfig):
     hyperparams = config.hyperparams
     DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
-    dataset = OTFDataset(Path("data/wav-22050"),
+    dataset = FramewiseDataset(Path("data/wav-22050"),
                          Path("data/LeitmotifOccurrencesInstances/Instances"),
                          include_none_class=hyperparams.include_none_class,
                          mixup_prob=0,

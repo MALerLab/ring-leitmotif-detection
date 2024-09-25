@@ -1,0 +1,18 @@
+Method: NMS threshold grid search
+Split: version
+Checkpoint: checkpoints/YOLO/reduce_none_sample_best_epoch34_1.6842.pt
+=========== Evaluation Results ============
+      Nibelungen | P: 0.820, R: 0.835, F1: 0.828, Conf/IOU: 0.500/0.35000000000000003
+            Ring | P: 0.859, R: 0.862, F1: 0.861, Conf/IOU: 0.550/0.4
+  Nibelungenhass | P: 0.875, R: 0.875, F1: 0.875, Conf/IOU: 0.500/0.65
+            Ritt | P: 0.774, R: 0.781, F1: 0.777, Conf/IOU: 0.450/0.4
+       Waldweben | P: 0.923, R: 0.895, F1: 0.909, Conf/IOU: 0.350/0.30000000000000004
+       Waberlohe | P: 0.895, R: 0.838, F1: 0.866, Conf/IOU: 0.600/0.6000000000000001
+            Horn | P: 0.886, R: 0.800, F1: 0.841, Conf/IOU: 0.550/0.30000000000000004
+         Schwert | P: 0.866, R: 0.895, F1: 0.880, Conf/IOU: 0.500/0.30000000000000004
+       Walhall-b | P: 0.879, R: 0.860, F1: 0.869, Conf/IOU: 0.550/0.30000000000000004
+     Feuerzauber | P: 0.913, R: 0.938, F1: 0.925, Conf/IOU: 0.600/0.45
+          Unmuth | P: 0.910, R: 0.880, F1: 0.895, Conf/IOU: 0.600/0.5
+       Siegfried | P: 0.889, R: 0.889, F1: 0.889, Conf/IOU: 0.550/0.45
+         Vertrag | P: 0.921, R: 0.843, F1: 0.881, Conf/IOU: 0.650/0.5
+     Matrix Mean | P: 0.870, R: 0.834, F1: 0.852, Conf/IOU: 0.550/0.35000000000000003

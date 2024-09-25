@@ -11,7 +11,7 @@ from .data_utils import (
     sample_non_overlapping_interval
 )
 
-class OTFDataset:
+class FramewiseDataset:
     def __init__(
             self,
             wav_path:Path,
@@ -22,7 +22,6 @@ class OTFDataset:
             valid_acts,
             idx2motif,
             include_none_class=False,
-            max_none_samples=3000,
             duration_sec=15,
             duration_samples=646,
             split="version",
@@ -37,7 +36,6 @@ class OTFDataset:
         self.valid_acts = valid_acts
         self.idx2motif = idx2motif
         self.motif2idx = {x: i for i, x in enumerate(idx2motif)}
-        self.max_none_samples = max_none_samples
         self.split = split
         self.wav_fns = sorted(list(wav_path.glob("*.pt")))
         self.stems = [x.stem for x in self.wav_fns]
@@ -62,7 +60,7 @@ class OTFDataset:
 
             # Load waveform
             with open(fn, "rb") as f:
-                self.wavs[fn.stem] = torch.load(f)
+                self.wavs[fn.stem] = torch.load(f, weights_only=True)
             num_frames = math.ceil(self.wavs[fn.stem].shape[0] / 512)
 
             # Create ground truth instance tensors
@@ -129,7 +127,6 @@ class OTFDataset:
             self.none_samples.extend(none_samples_act)
 
         random.shuffle(self.none_samples)
-        self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
         # Create none sample index lookup table
         self.none_samples_by_version = {}
         for version in self.train_versions + self.valid_versions:
@@ -145,25 +142,25 @@ class OTFDataset:
         Returns a list of subset indices for given versions and/or acts.\n
         """
         if versions is None and acts is None:
-            return list(range(len(self.samples) + len(self.none_samples)))
+            return list(range(len(self.samples))), list(range(len(self.none_samples)))
         elif versions is None:
             samples = [idx for (idx, x) in enumerate(
                 self.samples) if x[1] in acts]
             none_samples = [idx + len(self.samples) for (idx, x)
                             in enumerate(self.none_samples) if x[1] in acts]
-            return samples + none_samples
+            return samples, none_samples
         elif acts is None:
             samples = [idx for (idx, x) in enumerate(
                 self.samples) if x[0] in versions]
             none_samples = [idx + len(self.samples) for (idx, x)
                             in enumerate(self.none_samples) if x[0] in versions]
-            return samples + none_samples
+            return samples, none_samples
         else:
             samples = [idx for (idx, x) in enumerate(
                 self.samples) if x[0] in versions and x[1] in acts]
             none_samples = [idx + len(self.samples) for (idx, x) in enumerate(
                 self.none_samples) if x[0] in versions and x[1] in acts]
-            return samples + none_samples
+            return samples, none_samples
 
     def query_motif(self, motif: str):
         """
@@ -290,7 +287,6 @@ class YOLODataset:
             overlap_sec=3,
             duration_frames=646,
             include_threshold=0.5,
-            max_none_samples=3000,
             S=11,
             split="version",
             mixup_prob=0,
@@ -318,7 +314,6 @@ class YOLODataset:
         self.increment_sec = duration_sec - overlap_sec
         self.duration_frames = duration_frames
         self.include_threshold = include_threshold
-        self.max_none_samples = max_none_samples
         self.S = S
         self.split = split
         self.mixup_prob = mixup_prob
@@ -414,7 +409,6 @@ class YOLODataset:
         
         print("Shuffling and truncating none samples...")
         random.shuffle(self.none_samples)
-        # self.none_samples = self.none_samples[:min(len(self.none_samples), self.max_none_samples)]
 
         # Create none sample index lookup table
         self.none_samples_by_version = {}
@@ -488,7 +482,7 @@ class YOLODataset:
             return samples, none_samples
         
     def __len__(self):
-        return len(self.samples) + min(len(self.none_samples), self.max_none_samples)
+        return len(self.samples) + len(self.none_samples)
     
     def __getitem__(self, idx):
         if idx < len(self.samples):

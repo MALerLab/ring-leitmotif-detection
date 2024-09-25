@@ -75,7 +75,7 @@ class ConvStack(nn.Module):
         self.stack2 = nn.Sequential(
             nn.Conv1d(base_hidden*16, base_hidden*32, 3, 1, "same", 27),
             nn.LeakyReLU(0.1),
-            nn.BatchNorm1d(base_hidden*16),
+            nn.BatchNorm1d(base_hidden*32),
             nn.Conv1d(base_hidden*32, base_hidden*32, 3, 1, "same", 27),
             nn.LeakyReLU(0.1),
             nn.BatchNorm1d(base_hidden*32),

@@ -2,7 +2,7 @@ from pathlib import Path
 import torchaudio
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
-from ..data.dataset import OTFDataset
+from ..data.dataset import FramewiseDataset
 from ..data.data_utils import idx2motif
 
 def save_preview(dataset, sample, dir:Path, idx, duration_sec=15):
@@ -42,7 +42,7 @@ def save_preview(dataset, sample, dir:Path, idx, duration_sec=15):
     plt.close(fig)
 
 def main():
-    dataset = OTFDataset(Path("data/wav-22050"),
+    dataset = FramewiseDataset(Path("data/wav-22050"),
                         Path("data/LeitmotifOccurrencesInstances/Instances"),
                         Path("data/WagnerRing_Public/02_Annotations/ann_audio_singing"))
 
