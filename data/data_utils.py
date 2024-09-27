@@ -146,31 +146,6 @@ def get_diou_loss(pred, gt):
     loss = (1 - diou).mean()
     return loss, iou.mean()
 
-idx2motif = [
-    'Nibelungen',
-    'Ring',
-    'Nibelungenhass',
-    # 'Mime',
-    'Ritt',
-    'Waldweben',
-    'Waberlohe',
-    'Horn',
-    # 'Geschwisterliebe',
-    'Schwert',
-    # 'Jugendkraft',
-    'Walhall-b',
-    # 'Riesen',
-    'Feuerzauber',
-    # 'Schicksal',
-    'Unmuth',
-    # 'Liebe',
-    'Siegfried',
-    # 'Mannen',
-    'Vertrag'
-]
-
-motif2idx = {x: i for i, x in enumerate(idx2motif)}
-
 motif2id = {
     'Nibelungen': 'L-Ni',
     'Ring': 'L-Ri',
