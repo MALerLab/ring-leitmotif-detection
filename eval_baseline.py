@@ -177,9 +177,6 @@ def main(cfg: DictConfig):
     leitmotif_preds = torch.cat(leitmotif_preds, dim=0)
     leitmotif_gts = torch.cat(leitmotif_gts, dim=0)
 
-    torch.save(leitmotif_preds, "bbox-pred.pt")
-    torch.save(leitmotif_gts, "bbox-gt.pt")
-
     # Maximum filtering
     pool = torch.nn.MaxPool1d(
         kernel_size=cfg.eval.discretization,
@@ -188,9 +185,6 @@ def main(cfg: DictConfig):
     )
     leitmotif_preds = pool(leitmotif_preds.T).T
     leitmotif_gts = pool(leitmotif_gts.T).T
-
-    torch.save(leitmotif_preds, "bbox-pred-max.pt")
-    torch.save(leitmotif_gts, "bbox-gt-max.pt")
 
     print("Performing threshold grid search...")
     # Threshold grid search
