@@ -37,3 +37,4 @@ trainer:
 
 eval:
   checkpoint: null
+  discretization: 16
