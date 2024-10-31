@@ -103,6 +103,67 @@ def nms(
 
     return results
 
+def classwise_nms(
+        pred,
+        anchors: torch.Tensor,
+        thresholds: list
+    ):
+    """
+    Args:
+        pred: raw output from model (batch, num_anchors, S, 3 + C)
+        thresholds: [(iou_threshold, conf_threshold), ...]
+
+    Returns:
+        2-dimensional list of boxes represented as [p_o, x(relative to sample), w, class_idx]
+    """
+    pred = pred.clone().detach()
+
+    num_batches = pred.shape[0]
+    pred[..., 0:1] = torch.sigmoid(pred[..., 0:1])
+    pred[..., 1:2] = torch.sigmoid(pred[..., 1:2])
+    results = []
+    for batch_idx in range(num_batches):
+        batch_pred = pred[batch_idx]
+        anchors = anchors.reshape(3, 1, 1)
+        batch_pred = torch.cat(
+            [
+                batch_pred[..., 0:1],
+                grid_to_absolute(batch_pred[..., 1:2]), 
+                torch.exp(batch_pred[..., 2:3]) * anchors,
+                torch.argmax(batch_pred[..., 3:], dim=-1).float().unsqueeze(-1)
+            ], 
+            dim=-1
+        ) # (*, 4[p_o, x, w, class_idx])
+        batch_pred = batch_pred.reshape(-1, 4)
+        
+        boxes = []
+        for pred in batch_pred:
+            pred_class = int(pred[3].item())
+            conf_threshold = thresholds[pred_class][1]
+            if pred[0] > conf_threshold:
+                boxes.append(pred.tolist())
+        boxes = sorted(boxes, key=lambda x: x[0], reverse=True)
+
+        result = []
+        while boxes:
+            cur_box = boxes.pop(0)
+            iou_threshold = thresholds[int(cur_box[3])][0]
+            boxes = [
+                box
+                for box in boxes
+                if box[3] != cur_box[3]
+                or get_iou(
+                    torch.tensor(cur_box[1:3]).to(pred.device),
+                    torch.tensor(box[1:3]).to(pred.device)
+                ).squeeze().item()
+                < iou_threshold
+            ]
+            result.append(cur_box)
+        
+        results.append(result)
+
+    return results
+
 def get_acc(
         suppressed_pred:list, 
         gt:torch.Tensor, 

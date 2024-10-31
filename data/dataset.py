@@ -282,6 +282,8 @@ class YOLODataset:
             valid_acts,
             idx2motif,
             anchors,
+            test_versions=[],
+            test_acts=[],
             use_merged_data=False,
             duration_sec=15,
             overlap_sec=3,
@@ -301,6 +303,8 @@ class YOLODataset:
         self.valid_versions = valid_versions
         self.train_acts = train_acts
         self.valid_acts = valid_acts
+        self.test_versions = test_versions
+        self.test_acts = test_acts
         self.idx2motif = idx2motif
         self.motif2idx = {x: i for i, x in enumerate(idx2motif)}
         self.anchors = anchors
@@ -336,9 +340,9 @@ class YOLODataset:
         for fn in tqdm(self.wav_fns, leave=False, ascii=True):
             version = fn.stem.split("_")[0]
             act = fn.stem.split("_")[1]
-            if self.split == "version" and version not in self.train_versions + self.valid_versions:
+            if self.split == "version" and version not in self.train_versions + self.valid_versions + self.test_versions:
                 continue
-            if self.split == "act" and act not in self.train_acts + self.valid_acts:
+            if self.split == "act" and act not in self.train_acts + self.valid_acts + self.test_acts:
                 continue
             if self.eval and self.split == "version" and version in self.train_versions:
                 continue
@@ -353,21 +357,21 @@ class YOLODataset:
                 self.instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
             instances.sort(key=lambda x: x[1])
 
-            # if self.eval:
-            #     num_frames = math.ceil(self.wavs[fn.stem].shape[0] / 512)
-            #     # Create framewise ground truth tensors
-            #     self.framewise_gts[fn.stem] = torch.zeros((num_frames, self.num_classes))
-            #     instances = list(pd.read_csv(
-            #         instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
-            #     for instance in instances:
-            #         motif = instance[0]
-            #         if motif not in self.idx2motif: continue
-            #         start = instance[1]
-            #         end = instance[2]
-            #         start_idx = int(round(start * 22050 / 512))
-            #         end_idx = int(round(end * 22050 / 512))
-            #         motif_idx = self.motif2idx[motif]
-            #         self.framewise_gts[fn.stem][start_idx:end_idx, motif_idx] = 1
+            if self.eval:
+                num_frames = math.ceil(self.wavs[fn.stem].shape[0] / 512)
+                # Create framewise ground truth tensors
+                self.framewise_gts[fn.stem] = torch.zeros((num_frames, self.num_classes))
+                instances = list(pd.read_csv(
+                    self.instances_path / f"P-{version}/{act}.csv", sep=";").itertuples(index=False, name=None))
+                for instance in instances:
+                    motif = instance[0]
+                    if motif not in self.idx2motif: continue
+                    start = instance[1]
+                    end = instance[2]
+                    start_idx = int(round(start * 22050 / 512))
+                    end_idx = int(round(end * 22050 / 512))
+                    motif_idx = self.motif2idx[motif]
+                    self.framewise_gts[fn.stem][start_idx:end_idx, motif_idx] = 1
 
             # Slice instances and create ground truth tensors
             for i in range(0, math.floor(length_sec), self.increment_sec):
@@ -487,25 +491,32 @@ class YOLODataset:
     def __getitem__(self, idx):
         if idx < len(self.samples):
             version, act, start, end, gt = self.samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end].to(self.device)
-            wav = self.apply_augmentations(wav, version, act)
-
-            # if self.eval:
-            #     start_frame = int(round(start / 512))
-            #     end_frame = start_frame + self.duration_frames
-            #     return wav, self.framewise_gts[f"{version}_{act}"][start_frame:end_frame, :]
-            # else:
-            return wav, gt
+            wav = self.wavs[f"{version}_{act}"][start:end]
+            if random.random() < self.cur_mixup_prob:
+                mixup_idx = 0
+                if self.split == "version":
+                    mixup_idx = random.choice(self.none_samples_by_version[version[0]])
+                else:
+                    mixup_idx = random.choice(self.none_samples_by_act[act("_")[1]])
+                mixup_fn, mixup_start, mixup_end, _ = self.none_samples[mixup_idx]
+                mixup_wav = self.wavs[mixup_fn][mixup_start:mixup_end]
+                wav = (1 - self.mixup_alpha) * wav + self.mixup_alpha * mixup_wav
+            if self.eval:
+                frame_start, frame_end = start // 512, end // 512
+                framewise_gt = self.framewise_gts[f"{version}_{act}"][frame_start:frame_end]
+                return wav, gt, framewise_gt
+            else:
+                return wav, gt
         else:
             idx -= len(self.samples)
             version, act, start, end, gt = self.none_samples[idx]
-            wav = self.wavs[f"{version}_{act}"][start:end].to(self.device)
-            # if self.eval:
-            #     start_frame = int(round(start / 512))
-            #     end_frame = start_frame + self.duration_frames
-            #     return wav, torch.zeros((end_frame - start_frame, self.num_classes))
-            # else:
-            return wav, gt
+            wav = self.wavs[f"{version}_{act}"][start:end]
+            if self.eval:
+                frame_start, frame_end = start // 512, end // 512
+                framewise_gt = self.framewise_gts[f"{version}_{act}"][frame_start:frame_end]
+                return wav, gt, framewise_gt
+            else:
+                return wav, gt
 
 
 if __name__ == "__main__":

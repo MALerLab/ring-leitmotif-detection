@@ -130,70 +130,71 @@ def main(cfg: DictConfig):
             cqt = transform(wav.to(DEV)).squeeze(0)
             cqt = (cqt / cqt.max()).T
             leitmotif_pred = infer_cnn(model, cqt, num_classes=dataset.num_classes)
+            gt = instances_gts[fn]
 
-            # Apply median filter
-            for i in range(leitmotif_pred.shape[1]):
-                leitmotif_pred[:, i] = medfilt(leitmotif_pred[:, i])
+            # # Apply median filter
+            # for i in range(leitmotif_pred.shape[1]):
+            #     leitmotif_pred[:, i] = medfilt(leitmotif_pred[:, i])
             
-            # Subdivide measures
-            version = fn.split("_")[0]
-            act = fn.split("_")[1]
-            measures = pd.read_csv(f"data/WagnerRing_Public/02_Annotations/ann_audio_measure/Wagner_WWV086{act}_{id2version[version]}.csv", sep=';').itertuples(index=False, name=None)
-            subdivision_points = []
-            prev_rec_start = 0
-            prev_measure_idx = 0
-            for measure in measures:
-                recording_start_sec, measure_idx = measure
-                measure_diff = measure_idx - prev_measure_idx
-                prev_measure_idx = measure_idx
+            # # Subdivide measures
+            # version = fn.split("_")[0]
+            # act = fn.split("_")[1]
+            # measures = pd.read_csv(f"data/WagnerRing_Public/02_Annotations/ann_audio_measure/Wagner_WWV086{act}_{id2version[version]}.csv", sep=';').itertuples(index=False, name=None)
+            # subdivision_points = []
+            # prev_rec_start = 0
+            # prev_measure_idx = 0
+            # for measure in measures:
+            #     recording_start_sec, measure_idx = measure
+            #     measure_diff = measure_idx - prev_measure_idx
+            #     prev_measure_idx = measure_idx
 
-                diff = recording_start_sec - prev_rec_start
-                if prev_rec_start == 0:
-                    prev_rec_start = recording_start_sec
-                    continue
-                subdiv_length = diff / cfg.eval.discretization
-                num_subdiv = round(cfg.eval.discretization * measure_diff)
+            #     diff = recording_start_sec - prev_rec_start
+            #     if prev_rec_start == 0:
+            #         prev_rec_start = recording_start_sec
+            #         continue
+            #     subdiv_length = diff / cfg.eval.discretization
+            #     num_subdiv = round(cfg.eval.discretization * measure_diff)
 
-                for i in range(num_subdiv):
-                    subdiv_point = round((prev_rec_start + i * subdiv_length) * 22050 / 512)
-                    subdivision_points.append(subdiv_point)
-                prev_rec_start = recording_start_sec
+            #     for i in range(num_subdiv):
+            #         subdiv_point = round((prev_rec_start + i * subdiv_length) * 22050 / 512)
+            #         subdivision_points.append(subdiv_point)
+            #     prev_rec_start = recording_start_sec
 
-            # Take max over subdivisions
-            leitmotif_out = torch.zeros(len(subdivision_points)-1, leitmotif_pred.shape[1])
-            leitmotif_gt = torch.zeros(len(subdivision_points)-1, leitmotif_pred.shape[1])
-            for i in range(len(subdivision_points)-1):
-                start = subdivision_points[i]
-                end = subdivision_points[i+1]
-                if start == end: continue
-                if start > leitmotif_pred.shape[0]: break
-                leitmotif_out[i, :] = leitmotif_pred[start:end, :].max(dim=0).values
-                leitmotif_gt[i, :] = instances_gts[fn][start:end, :].max(dim=0).values
+            # # Take max over subdivisions
+            # leitmotif_out = torch.zeros(len(subdivision_points)-1, leitmotif_pred.shape[1])
+            # leitmotif_gt = torch.zeros(len(subdivision_points)-1, leitmotif_pred.shape[1])
+            # for i in range(len(subdivision_points)-1):
+            #     start = subdivision_points[i]
+            #     end = subdivision_points[i+1]
+            #     if start == end: continue
+            #     if start > leitmotif_pred.shape[0]: break
+            #     leitmotif_out[i, :] = leitmotif_pred[start:end, :].max(dim=0).values
+            #     leitmotif_gt[i, :] = instances_gts[fn][start:end, :].max(dim=0).values
 
-            leitmotif_preds.append(leitmotif_out)
-            leitmotif_gts.append(leitmotif_gt)
+            leitmotif_preds.append(leitmotif_pred)
+            leitmotif_gts.append(gt)
     
     leitmotif_preds = torch.cat(leitmotif_preds, dim=0)
     leitmotif_gts = torch.cat(leitmotif_gts, dim=0)
 
     # Maximum filtering
-    pool = torch.nn.MaxPool1d(
-        kernel_size=cfg.eval.discretization,
-        stride=1,
-        padding=cfg.eval.discretization//2
-    )
-    leitmotif_preds = pool(leitmotif_preds.T).T
-    leitmotif_gts = pool(leitmotif_gts.T).T
+    # pool = torch.nn.MaxPool1d(
+    #     kernel_size=cfg.eval.discretization,
+    #     stride=1,
+    #     padding=cfg.eval.discretization//2
+    # )
+    # leitmotif_preds = pool(leitmotif_preds.T).T
+    # leitmotif_gts = pool(leitmotif_gts.T).T
 
     print("Performing threshold grid search...")
     # Threshold grid search
-    thresholds = [x * 0.001 for x in range(1, 1000, 1)]
-    best_f1 = [0 for _ in range(dataset.num_classes + 1)]
-    best_threshold = [0 for _ in range(dataset.num_classes + 1)]
-    best_precision = [0 for _ in range(dataset.num_classes + 1)]
-    best_recall = [0 for _ in range(dataset.num_classes + 1)]
+    thresholds = [x * 0.01 for x in range(1, 100, 1)]
+    best_f1 = [0 for _ in range(dataset.num_classes)]
+    best_threshold = [0 for _ in range(dataset.num_classes)]
+    best_precision = [0 for _ in range(dataset.num_classes)]
+    best_recall = [0 for _ in range(dataset.num_classes)]
     for threshold in tqdm(thresholds, leave=False, ascii=True):
-        for i in range(dataset.num_classes):
+        for i in range(dataset.num_classes - 1):
             f1, precision, recall = get_binary_f1(leitmotif_preds[:, i], leitmotif_gts[:, i], threshold)
             if f1 > best_f1[i]:
                 best_f1[i] = f1
@@ -201,7 +202,7 @@ def main(cfg: DictConfig):
                 best_precision[i] = precision
                 best_recall[i] = recall
         # Get matrix mean
-        f1, precision, recall = get_binary_f1(leitmotif_preds, leitmotif_gts, threshold)
+        f1, precision, recall = get_binary_f1(leitmotif_preds[:-1, :], leitmotif_gts[:-1, :], threshold)
         if f1 > best_f1[-1]:
             best_f1[-1] = f1
             best_threshold[-1] = threshold

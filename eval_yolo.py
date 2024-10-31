@@ -54,7 +54,7 @@ def main(cfg: DictConfig):
         use_merged_data=cfg.dataset.use_merged_data,
         overlap_sec = 0,
         include_threshold = 0.5,
-        max_none_samples = 0,
+        # max_none_samples = 0,
         split = cfg.dataset.split,
         mixup_prob = 0,
         mixup_alpha = 0,
@@ -66,13 +66,21 @@ def main(cfg: DictConfig):
     valid_set = None
     if cfg.dataset.split == "version":
         valid_set = Subset(base_set, base_set.get_subset_idxs(versions=constants.VALID_VERSIONS))
+        test_set = Subset(base_set, base_set.get_subset_idxs(versions=constants.TEST_VERSIONS))
     elif cfg.dataset.split == "act":
         valid_set = Subset(base_set, base_set.get_subset_idxs(acts=constants.VALID_ACTS))
+        test_set = Subset(base_set, base_set.get_subset_idxs(acts=constants.TEST_ACTS))
     else:
         raise ValueError("Invalid split method")
     
     valid_loader = torch.utils.data.DataLoader(
         valid_set,
+        batch_size = cfg.batch_size,
+        shuffle = False,
+        collate_fn = collate_fn
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_set,
         batch_size = cfg.batch_size,
         shuffle = False,
         collate_fn = collate_fn
@@ -96,7 +104,7 @@ def main(cfg: DictConfig):
     anchors = anchors.reshape(1, 3, 1, 1)
     print("Starting inference...")
     with torch.inference_mode():
-        for batch in tqdm(valid_loader, ascii=True):
+        for batch in tqdm(test_loader, ascii=True):
             wav, gt = batch
             p = model(wav.to(DEV))
             gt = gt.to(DEV)
@@ -115,46 +123,98 @@ def main(cfg: DictConfig):
     best_precision = [0 for _ in range(base_set.num_classes + 1)]
     best_recall = [0 for _ in range(base_set.num_classes + 1)]
 
-    for conf_thresh in tqdm(conf_thresholds, ascii=True):
-        for nms_iou_thresh in tqdm(nms_iou_thresholds, ascii=True, leave=False):
-            tp = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
-            fp = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
-            fn = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
-            for pred, gt in zip(preds, targets):
-                p = nms(pred, torch.tensor(C.ANCHORS).to(DEV), conf_threshold=conf_thresh, iou_threshold=nms_iou_thresh)
-                for b in range(len(pred)):
-                    t = gt[b][gt[b][..., 0] == 1].tolist()
-                    checked = [False for _ in range(len(t))]
-                    for p_box in p[b]:
-                        for i, t_box in enumerate(t):
-                            if (p_box[3] == t_box[3] and
-                                get_iou(
-                                    torch.tensor(t_box[1:3]).to(DEV), 
-                                    torch.tensor(p_box[1:3]).to(DEV)
-                                ).item() > iou_threshold):
-                                if not checked[i]:
-                                    tp[int(t_box[3])] += 1
-                                    tp[-1] += 1
-                                    checked[i] = True
-                                break
-                        else:
-                            fp[int(p_box[3])] += 1
-                            fp[-1] += 1
-                    for i, c in enumerate(checked):
-                        if not c:
-                            fn[int(t[i][3])] += 1
-                            fn[-1] += 1
+    best_thresholds = [
+        [0.500, 0.350],
+        [0.550, 0.400],
+        [0.500, 0.650],
+        [0.450, 0.400],
+        [0.350, 0.300],
+        [0.600, 0.600],
+        [0.550, 0.300],
+        [0.500, 0.300],
+        [0.550, 0.300],
+        [0.600, 0.450],
+        [0.600, 0.500],
+        [0.550, 0.450],
+        [0.650, 0.500],
+        [0.550, 0.350]
+    ]
+    for i in range(base_set.num_classes + 1):
+        conf_thresh, nms_iou_thresh = best_thresholds[i]
+        tp = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
+        fp = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
+        fn = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
+        for pred, gt in zip(preds, targets):
+            p = nms(pred, torch.tensor(C.ANCHORS).to(DEV), conf_threshold=conf_thresh, iou_threshold=nms_iou_thresh)
+            for b in range(len(pred)):
+                t = gt[b][gt[b][..., 0] == 1].tolist()
+                checked = [False for _ in range(len(t))]
+                for p_box in p[b]:
+                    for i, t_box in enumerate(t):
+                        if (p_box[3] == t_box[3] and
+                            get_iou(
+                                torch.tensor(t_box[1:3]).to(DEV), 
+                                torch.tensor(p_box[1:3]).to(DEV)
+                            ).item() > iou_threshold):
+                            if not checked[i]:
+                                tp[int(t_box[3])] += 1
+                                tp[-1] += 1
+                                checked[i] = True
+                            break
+                    else:
+                        fp[int(p_box[3])] += 1
+                        fp[-1] += 1
+                for i, c in enumerate(checked):
+                    if not c:
+                        fn[int(t[i][3])] += 1
+                        fn[-1] += 1
 
-            precision = tp / (tp + fp)
-            recall = tp / (tp + fn)
-            f1 = 2 * (precision * recall) / (precision + recall)
-            for i in range(base_set.num_classes + 1):
-                if f1[i].item() > best_f1[i]:
-                    best_f1[i] = f1[i].item()
-                    best_thresholds[i] = [conf_thresh, nms_iou_thresh]
-                    best_precision[i] = precision[i].item()
-                    best_recall[i] = recall[i].item()
+        precision = tp / (tp + fp)
+        recall = tp / (tp + fn)
+        f1 = 2 * (precision * recall) / (precision + recall)
+        best_f1[i] = f1[i].item()
+        best_precision[i] = precision[i].item()
+        best_recall[i] = recall[i].item()
 
+    # for conf_thresh in tqdm(conf_thresholds, ascii=True):
+    #     for nms_iou_thresh in tqdm(nms_iou_thresholds, ascii=True, leave=False):
+    #         tp = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
+    #         fp = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
+    #         fn = torch.tensor([0 for _ in range(base_set.num_classes + 1)]).to(DEV)
+    #         for pred, gt in zip(preds, targets):
+    #             p = nms(pred, torch.tensor(C.ANCHORS).to(DEV), conf_threshold=conf_thresh, iou_threshold=nms_iou_thresh)
+    #             for b in range(len(pred)):
+    #                 t = gt[b][gt[b][..., 0] == 1].tolist()
+    #                 checked = [False for _ in range(len(t))]
+    #                 for p_box in p[b]:
+    #                     for i, t_box in enumerate(t):
+    #                         if (p_box[3] == t_box[3] and
+    #                             get_iou(
+    #                                 torch.tensor(t_box[1:3]).to(DEV), 
+    #                                 torch.tensor(p_box[1:3]).to(DEV)
+    #                             ).item() > iou_threshold):
+    #                             if not checked[i]:
+    #                                 tp[int(t_box[3])] += 1
+    #                                 tp[-1] += 1
+    #                                 checked[i] = True
+    #                             break
+    #                     else:
+    #                         fp[int(p_box[3])] += 1
+    #                         fp[-1] += 1
+    #                 for i, c in enumerate(checked):
+    #                     if not c:
+    #                         fn[int(t[i][3])] += 1
+    #                         fn[-1] += 1
+
+    #         precision = tp / (tp + fp)
+    #         recall = tp / (tp + fn)
+    #         f1 = 2 * (precision * recall) / (precision + recall)
+    #         for i in range(base_set.num_classes + 1):
+    #             if f1[i].item() > best_f1[i]:
+    #                 best_f1[i] = f1[i].item()
+    #                 best_thresholds[i] = [conf_thresh, nms_iou_thresh]
+    #                 best_precision[i] = precision[i].item()
+    #                 best_recall[i] = recall[i].item()
 
     now = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     print(f"=========== Evaluation Results ============")

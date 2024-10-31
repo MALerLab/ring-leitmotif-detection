@@ -7,4 +7,6 @@ __pycache__/
 .vscode/
 outputs/
 wandb/
+logs/
 **/.DS_Store
+sandbox.ipynb
