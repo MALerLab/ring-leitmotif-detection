@@ -2,6 +2,7 @@ data/WagnerRing_Public/
 data/wav-22050/
 tests/extracts/
 tests/previews/
+tests/unused/
 checkpoints/
 __pycache__/
 .vscode/
@@ -9,4 +10,3 @@ outputs/
 wandb/
 logs/
 **/.DS_Store
-sandbox.ipynb
